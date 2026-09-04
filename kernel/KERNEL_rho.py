@@ -13,8 +13,8 @@ def Kernel_shepard_sph(P_sph: SPHptl,
     """
     Calculate Shepard filter for SPH from SPH, BND
 
-    Index convention: i is the particle this thread computes for, j is a SPH
-    (fluid) neighbour, d is a BND (dummy boundary) neighbour.
+    Index convention: i / j are the SPH (fluid) subject and neighbour,
+    bi / bj are the BND (dummy boundary) subject and neighbour.
 
     # Output
     P_sph.flt[i]
@@ -31,12 +31,12 @@ def Kernel_shepard_sph(P_sph: SPHptl,
             wij = Kernel_w_Wendland(wp.sqrt(tdist), h)
             flt = flt + (P_sph.m[j] / P_sph.rho[j]) * wij
     # Sph - Bnd
-    for d in wp.hash_grid_query(grid_bnd, ri, support):
-        rid = ri - P_bnd.pos[d]
-        tdist = wp.dot(rid, rid)
+    for bj in wp.hash_grid_query(grid_bnd, ri, support):
+        ribj = ri - P_bnd.pos[bj]
+        tdist = wp.dot(ribj, ribj)
         if tdist < support * support:
-            wid = Kernel_w_Wendland(wp.sqrt(tdist), h)
-            flt = flt + (P_bnd.m[d] / P_bnd.rho[d]) * wid
+            wibj = Kernel_w_Wendland(wp.sqrt(tdist), h)
+            flt = flt + (P_bnd.m[bj] / P_bnd.rho[bj]) * wibj
     P_sph.flt[i] = flt
 
 
@@ -55,8 +55,8 @@ def Kernel_density_sph(P_sph: SPHptl,
     The kernel sum runs over the same neighbours as Kernel_shepard_sph, so that
     the sum and the filter P_sph.flt it is divided by stay consistent.
 
-    Index convention: i is the particle this thread computes for, j is a SPH
-    (fluid) neighbour, d is a BND (dummy boundary) neighbour.
+    Index convention: i / j are the SPH (fluid) subject and neighbour,
+    bi / bj are the BND (dummy boundary) subject and neighbour.
 
     # Output
     P_sph.rho[i]
@@ -73,12 +73,12 @@ def Kernel_density_sph(P_sph: SPHptl,
             wij = Kernel_w_Wendland(wp.sqrt(tdist), h)
             rhoi = rhoi + P_sph.m[j] * wij
     # Sph - Bnd
-    for d in wp.hash_grid_query(grid_bnd, ri, support):
-        rid = ri - P_bnd.pos[d]
-        tdist = wp.dot(rid, rid)
+    for bj in wp.hash_grid_query(grid_bnd, ri, support):
+        ribj = ri - P_bnd.pos[bj]
+        tdist = wp.dot(ribj, ribj)
         if tdist < support * support:
-            wid = Kernel_w_Wendland(wp.sqrt(tdist), h)
-            rhoi = rhoi + P_bnd.m[d] * wid
+            wibj = Kernel_w_Wendland(wp.sqrt(tdist), h)
+            rhoi = rhoi + P_bnd.m[bj] * wibj
     P_sph.rho[i] = rhoi / P_sph.flt[i]
 
 
@@ -98,31 +98,32 @@ def Kernel_density_bnd(P_sph: SPHptl,
     would drag its density back to rho0 and erase the compression that the
     approaching fluid causes, which is exactly what makes the wall push back.
 
-    Index convention: i is the particle this thread computes for and indexes
-    P_bnd here, j is a SPH (fluid) neighbour, d is a BND neighbour.
+    Index convention: i / j are the SPH (fluid) subject and neighbour,
+    bi / bj are the BND (dummy boundary) subject and neighbour. The subject
+    of this kernel is a boundary particle, so it is bi.
 
     # Output
-    P_bnd.rho[i]
+    P_bnd.rho[bi]
     """
     tid = wp.tid()
-    i = wp.hash_grid_point_id(grid_bnd, tid)
-    ri = P_bnd.pos[i]
-    rhoi = float(0.0)
+    bi = wp.hash_grid_point_id(grid_bnd, tid)
+    rbi = P_bnd.pos[bi]
+    rhobi = float(0.0)
     # Bnd - Sph
-    for j in wp.hash_grid_query(grid_sph, ri, support):
-        rij = ri - P_sph.pos[j]
-        tdist = wp.dot(rij, rij)
+    for j in wp.hash_grid_query(grid_sph, rbi, support):
+        rbij = rbi - P_sph.pos[j]
+        tdist = wp.dot(rbij, rbij)
         if tdist < support * support:
-            wij = Kernel_w_Wendland(wp.sqrt(tdist), h)
-            rhoi = rhoi + P_sph.m[j] * wij
+            wbij = Kernel_w_Wendland(wp.sqrt(tdist), h)
+            rhobi = rhobi + P_sph.m[j] * wbij
     # Bnd - Bnd
-    for d in wp.hash_grid_query(grid_bnd, ri, support):
-        rid = ri - P_bnd.pos[d]
-        tdist = wp.dot(rid, rid)
+    for bj in wp.hash_grid_query(grid_bnd, rbi, support):
+        rbibj = rbi - P_bnd.pos[bj]
+        tdist = wp.dot(rbibj, rbibj)
         if tdist < support * support:
-            wid = Kernel_w_Wendland(wp.sqrt(tdist), h)
-            rhoi = rhoi + P_bnd.m[d] * wid
-    P_bnd.rho[i] = rhoi
+            wbibj = Kernel_w_Wendland(wp.sqrt(tdist), h)
+            rhobi = rhobi + P_bnd.m[bj] * wbibj
+    P_bnd.rho[bi] = rhobi
 
 
 

@@ -20,8 +20,8 @@ def Kernel_force_sph(P_sph: SPHptl,
     All of them share one neighbor loop, because splitting the kernel
     would cost one more hash grid query per term.
 
-    Index convention: i is the particle this thread computes for, j is a SPH
-    (fluid) neighbour, d is a BND (dummy boundary) neighbour.
+    Index convention: i / j are the SPH (fluid) subject and neighbour,
+    bi / bj are the BND (dummy boundary) subject and neighbour.
 
     # Output
     P_sph.acc[i]
@@ -51,21 +51,21 @@ def Kernel_force_sph(P_sph: SPHptl,
                     / (rhoi * rhoj * (tdist + 0.01 * h * h))
                 acci = acci + P_sph.m[j] * visc * (vi - P_sph.vel[j])
     # Sph - Bnd
-    for d in wp.hash_grid_query(grid_bnd, ri, support):
-        rid = ri - P_bnd.pos[d]
-        tdist = wp.dot(rid, rid)
+    for bj in wp.hash_grid_query(grid_bnd, ri, support):
+        ribj = ri - P_bnd.pos[bj]
+        tdist = wp.dot(ribj, ribj)
         if tdist > R2_MIN:
             if tdist < support * support:
                 r = wp.sqrt(tdist)
-                dwid = Kernel_dw_Wendland(r, h) * (rid / r)     # grad_i Wid
-                rhod = P_bnd.rho[d]
-                presd = P_bnd.pres[d]
+                dwibj = Kernel_dw_Wendland(r, h) * (ribj / r)   # grad_i Wibj
+                rhobj = P_bnd.rho[bj]
+                presbj = P_bnd.pres[bj]
                 # Pressure force
-                acci = acci - P_bnd.m[d] * (presi / (rhoi * rhoi)
-                                            + presd / (rhod * rhod)) * dwid
+                acci = acci - P_bnd.m[bj] * (presi / (rhoi * rhoi)
+                                             + presbj / (rhobj * rhobj)) * dwibj
                 # Viscous force (Morris), no-slip with the wall velocity
-                visc = 2.0 * mu * wp.dot(rid, dwid) \
-                    / (rhoi * rhod * (tdist + 0.01 * h * h))
-                acci = acci + P_bnd.m[d] * visc * (vi - P_bnd.vel[d])
+                visc = 2.0 * mu * wp.dot(ribj, dwibj) \
+                    / (rhoi * rhobj * (tdist + 0.01 * h * h))
+                acci = acci + P_bnd.m[bj] * visc * (vi - P_bnd.vel[bj])
     # Gravity
     P_sph.acc[i] = acci + wp.vec3(0.0, -g, 0.0)

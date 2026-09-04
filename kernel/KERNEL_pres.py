@@ -32,12 +32,14 @@ def Kernel_pres_bnd(P_bnd: BNDptl,
     Calculate pressure of BND particles with Tait EOS
 
     Same EOS as Kernel_pres_sph. Boundary particles need their own pressure
-    because Kernel_force_sph reads P_bnd.pres[j] for the repulsive wall force.
+    because Kernel_force_sph reads P_bnd.pres[bj] for the repulsive wall force.
+
+    The subject of this kernel is a boundary particle, so it is bi.
 
     # Output
-    P_bnd.pres[i]
+    P_bnd.pres[bi]
     """
-    i = wp.tid()
+    bi = wp.tid()
     B = rho0 * c0 * c0 / gamma
-    q = wp.pow(P_bnd.rho[i] / rho0, gamma) - 1.0
-    P_bnd.pres[i] = B * wp.max(q, 0.0)
+    q = wp.pow(P_bnd.rho[bi] / rho0, gamma) - 1.0
+    P_bnd.pres[bi] = B * wp.max(q, 0.0)
