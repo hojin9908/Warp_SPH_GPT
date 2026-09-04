@@ -31,8 +31,11 @@ def SPH_OneStep(solv: Solv,
     use_shepard = solv.shepard_step > 0 and step % solv.shepard_step == 0
 
     # 1) shepard filter
-    # Kernel_density_sph divides the kernel sum by P_sph.flt, so flt = 1 gives
-    # the raw summation density on the steps the filter is not applied.
+    # P_sph.flt is refreshed only every solv.shepard_step steps and is kept in
+    # between, so Kernel_density_sph divides by the filter computed at the last
+    # refresh. Holding the normalization factor fixed is intended: it keeps the
+    # correction consistent where the kernel support is truncated and the SPH
+    # interpolation would otherwise underestimate the density.
     if use_shepard:
         wp.launch(
             Kernel_shepard_sph,

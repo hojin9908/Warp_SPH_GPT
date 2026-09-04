@@ -20,6 +20,9 @@ def Kernel_force_sph(P_sph: SPHptl,
     All of them share one neighbor loop, because splitting the kernel
     would cost one more hash grid query per term.
 
+    Index convention: i is the particle this thread computes for, j is a SPH
+    (fluid) neighbour, d is a BND (dummy boundary) neighbour.
+
     # Output
     P_sph.acc[i]
     """
@@ -48,21 +51,21 @@ def Kernel_force_sph(P_sph: SPHptl,
                     / (rhoi * rhoj * (tdist + 0.01 * h * h))
                 acci = acci + P_sph.m[j] * visc * (vi - P_sph.vel[j])
     # Sph - Bnd
-    for j in wp.hash_grid_query(grid_bnd, ri, support):
-        rij = ri - P_bnd.pos[j]
-        tdist = wp.dot(rij, rij)
+    for d in wp.hash_grid_query(grid_bnd, ri, support):
+        rid = ri - P_bnd.pos[d]
+        tdist = wp.dot(rid, rid)
         if tdist > R2_MIN:
             if tdist < support * support:
                 r = wp.sqrt(tdist)
-                dwij = Kernel_dw_Wendland(r, h) * (rij / r)
-                rhoj = P_bnd.rho[j]
-                presj = P_bnd.pres[j]
+                dwid = Kernel_dw_Wendland(r, h) * (rid / r)     # grad_i Wid
+                rhod = P_bnd.rho[d]
+                presd = P_bnd.pres[d]
                 # Pressure force
-                acci = acci - P_bnd.m[j] * (presi / (rhoi * rhoi)
-                                            + presj / (rhoj * rhoj)) * dwij
+                acci = acci - P_bnd.m[d] * (presi / (rhoi * rhoi)
+                                            + presd / (rhod * rhod)) * dwid
                 # Viscous force (Morris), no-slip with the wall velocity
-                visc = 2.0 * mu * wp.dot(rij, dwij) \
-                    / (rhoi * rhoj * (tdist + 0.01 * h * h))
-                acci = acci + P_bnd.m[j] * visc * (vi - P_bnd.vel[j])
+                visc = 2.0 * mu * wp.dot(rid, dwid) \
+                    / (rhoi * rhod * (tdist + 0.01 * h * h))
+                acci = acci + P_bnd.m[d] * visc * (vi - P_bnd.vel[d])
     # Gravity
     P_sph.acc[i] = acci + wp.vec3(0.0, -g, 0.0)
