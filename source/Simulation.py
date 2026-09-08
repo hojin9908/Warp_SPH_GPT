@@ -1,7 +1,7 @@
 import warp as wp
 
-from source.Config import Solv
-from source.struct import SPHptl, BNDptl
+from input.Config import Solv
+from input.struct import SPHptl, BNDptl
 
 from kernel.KERNEL_rho import Kernel_shepard_sph, Kernel_density_sph, Kernel_density_bnd
 from kernel.KERNEL_pres import Kernel_pres_sph, Kernel_pres_bnd

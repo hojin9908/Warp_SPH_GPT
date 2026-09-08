@@ -4,12 +4,12 @@ from typing import Any
 import numpy as np
 import warp as wp
 
-from source.Config import Solv
-from source.struct import SPHptl, BNDptl
-from source.gen_ptl import DamPtlGeneration
+from input.Config import Solv
+from input.struct import SPHptl, BNDptl
+from input.gen_ptl import DamPtlGeneration
 from source.Simulation import SPH_OneStep
-from source.output import save_vtk, save_pvd
-from source.gif_gen import collect_frame, save_gif
+from output.output import save_vtk, save_pvd
+from output.gif_gen import collect_frame, save_gif
 
 
 def parsing() -> dict[str, Any]:

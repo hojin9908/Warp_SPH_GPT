@@ -1,6 +1,6 @@
 import warp as wp
 
-from source.struct import SPHptl, BNDptl
+from input.struct import SPHptl, BNDptl
 
 
 @wp.kernel

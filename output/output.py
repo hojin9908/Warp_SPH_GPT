@@ -2,9 +2,9 @@ import os
 
 import numpy as np
 
-from source.struct import SPHptl, BNDptl
+from input.struct import SPHptl, BNDptl
 
-OUT_DIR = "output"
+OUT_DIR = "result"
 
 SPH_TYPE = 1        # fluid particle
 BND_TYPE = 0        # dummy boundary particle

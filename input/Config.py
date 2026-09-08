@@ -27,7 +27,6 @@ class Solv:
     g: 중력 가속도
     h: smoothing length. 0 이면 h_factor * dx 로 자동 계산
     h_factor: h 자동 계산에 쓰는 배수 (h = h_factor * dx)
-    kernel_type: SPH 커널 종류 ("cubic" 또는 "wendland")
 
     # density filter
     shepard_step: Shepard filter 적용 주기 [step]
@@ -65,7 +64,6 @@ class Solv:
     mu: float = 0.05
     g: float = 9.81
     h_factor: float = 1.3
-    kernel_type: str = "cubic"
 
     # density filter
     shepard_step: int = 20

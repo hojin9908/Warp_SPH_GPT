@@ -16,7 +16,7 @@ warp/
 .warp_cache/
 
 # Output / results
-output/
+result/
 results/
 animation/
 *.vtk

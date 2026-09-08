@@ -1,7 +1,7 @@
 import warp as wp
 
 from kernel.KERNEL_KNL import Kernel_w_Wendland, R2_MIN
-from source.struct import SPHptl, BNDptl
+from input.struct import SPHptl, BNDptl
 
 @wp.kernel
 def Kernel_shepard_sph(P_sph: SPHptl,

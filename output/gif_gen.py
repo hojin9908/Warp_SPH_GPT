@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 
-from source.Config import Solv
-from source.output import SPH_TYPE, gather_state
-from source.struct import SPHptl, BNDptl
+from input.Config import Solv
+from output.output import SPH_TYPE, gather_state
+from input.struct import SPHptl, BNDptl
 
 ANI_DIR = "animation"
 

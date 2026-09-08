@@ -1,8 +1,8 @@
 import numpy as np
 import warp as wp
 
-from source.struct import SPHptl, BNDptl
-from source.Config import Solv
+from input.struct import SPHptl, BNDptl
+from input.Config import Solv
 
 class DamPtlGeneration:
     """
