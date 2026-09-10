@@ -2,12 +2,14 @@ import os
 
 import numpy as np
 
-from input.struct import SPHptl, BNDptl
+from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
 
-OUT_DIR = "result"
+OUT_DIR = "result/3d"
 
 SPH_TYPE = 1        # fluid particle
 BND_TYPE = 0        # dummy boundary particle
+DEM_TYPE = 2        # moving DEM particle
+DEM_BND_TYPE = 3    # fixed DEM boundary particle
 
 
 def _fmt_float(a: np.ndarray, per_line: int = 6) -> str:
@@ -17,6 +19,7 @@ def _fmt_float(a: np.ndarray, per_line: int = 6) -> str:
 
 
 def _fmt_int(a: np.ndarray, per_line: int = 20) -> str:
+    """Flatten integer connectivity / type arrays to ASCII with per_line values per row."""
     v = ["%d" % x for x in np.asarray(a).ravel()]
     return "\n".join(" ".join(v[i:i + per_line]) for i in range(0, len(v), per_line))
 
@@ -42,6 +45,11 @@ def gather_state(P_sph: SPHptl,
         "vel":  np.vstack([P_sph.vel.numpy(),  P_bnd.vel.numpy()]),
         "rho":  np.concatenate([P_sph.rho.numpy(),  P_bnd.rho.numpy()]),
         "pres": np.concatenate([P_sph.pres.numpy(), P_bnd.pres.numpy()]),
+        "m":    np.concatenate([P_sph.m.numpy(), P_bnd.m.numpy()]),
+        # Dummy particles have no fluid coupling fields; placeholders keep one point order.
+        "porosity": np.concatenate([P_sph.porosity.numpy(), np.ones(n_bnd)]),
+        "pgf": np.vstack([P_sph.pgf.numpy(), np.zeros((n_bnd, 3))]),
+        "acc_dem": np.vstack([P_sph.acc_dem.numpy(), np.zeros((n_bnd, 3))]),
         "type": np.concatenate([np.full(n_sph, SPH_TYPE, dtype=np.int32),
                                 np.full(n_bnd, BND_TYPE, dtype=np.int32)]),
     }
@@ -69,8 +77,60 @@ def save_vtk(P_sph: SPHptl,
 
     return: (file name, t) -- feed the collected list to save_pvd
     """
-    os.makedirs(out_dir, exist_ok=True)
     d = gather_state(P_sph, P_bnd)
+    return _save_vtp(d, step, t, out_dir, name, "pres")
+
+
+def save_dem_vtk(P_dem: DEMptl,
+                 P_dem_bnd: DEMBNDptl,
+                 step: int,
+                 t: float,
+                 out_dir: str = OUT_DIR,
+                 name: str = "dem") -> tuple[str, float]:
+    """
+    Write a separate DEM dataset, including fixed-wall reactions (type=3).
+
+    radius can be used as the ParaView Sphere Glyph scale; type=2 selects beads.
+
+    P_dem: Particle structure of moving DEM spheres [N_dem]
+    P_dem_bnd: Particle structure of fixed DEM spheres [N_dem_bnd]
+    step: number of completed integration steps
+    t: physical time of the frame [s]
+    out_dir: directory for the VTP file
+    name: file name prefix, kept distinct from the SPH prefix
+
+    return: (file name, t) -- feed the collected list to save_pvd
+    """
+    n_dem, n_bnd = P_dem.pos.shape[0], P_dem_bnd.pos.shape[0]
+    d = {}
+    # Stack moving / fixed DEM fields in the same order for every point-data array.
+    for key in ("pos", "vel", "acc", "force", "omega", "torque", "radius", "rho", "m", "volume", "inertia"):
+        d[key] = np.concatenate([getattr(P_dem, key).numpy(), getattr(P_dem_bnd, key).numpy()])
+    d["type"] = np.concatenate([np.full(n_dem, DEM_TYPE, dtype=np.int32),
+                                 np.full(n_bnd, DEM_BND_TYPE, dtype=np.int32)])
+    # Only moving spheres participate in fluid coupling; fixed-wall values are placeholders.
+    for key in ("drag", "pressure_force"):
+        d[key] = np.vstack([getattr(P_dem, key).numpy(), np.zeros((n_bnd, 3))])
+    d["porosity"] = np.concatenate([P_dem.porosity.numpy(), np.ones(n_bnd)])
+    return _save_vtp(d, step, t, out_dir, name, "radius")
+
+
+def _save_vtp(d: dict[str, np.ndarray], step: int, t: float,
+              out_dir: str, name: str, scalar: str) -> tuple[str, float]:
+    """
+    Write one particle state as VTK XML PolyData with one vertex per particle.
+
+    d: host arrays with pos [N,3], scalar fields [N], vector fields [N,3],
+        and integer particle type [N]; all arrays share the same point order
+    step: number used in the zero-padded file name
+    t: physical time forwarded to the PVD entry [s]
+    out_dir: directory for the VTP file
+    name: phase-specific file name prefix
+    scalar: default scalar field displayed by the VTK reader (pres or radius)
+
+    return: (file name, t), using a file name relative to out_dir
+    """
+    os.makedirs(out_dir, exist_ok=True)
     n = d["pos"].shape[0]
     fname = f"{name}_{step:06d}.vtp"
 
@@ -80,6 +140,7 @@ def save_vtk(P_sph: SPHptl,
         f.write('  <PolyData>\n')
         f.write(f'    <Piece NumberOfPoints="{n}" NumberOfVerts="{n}" '
                 'NumberOfLines="0" NumberOfStrips="0" NumberOfPolys="0">\n')
+        # Geometry: 3D particle centers with y vertical and z depth.
         f.write('      <Points>\n')
         f.write('        <DataArray type="Float32" Name="Points" '
                 'NumberOfComponents="3" format="ascii">\n')
@@ -95,18 +156,16 @@ def save_vtk(P_sph: SPHptl,
         f.write(_fmt_int(np.arange(1, n + 1)) + "\n")
         f.write('        </DataArray>\n')
         f.write('      </Verts>\n')
-        f.write('      <PointData Scalars="pres" Vectors="vel">\n')
-        for key in ("rho", "pres"):
-            f.write(f'        <DataArray type="Float32" Name="{key}" format="ascii">\n')
-            f.write(_fmt_float(d[key]) + "\n")
+        # State fields: vectors have three components; particle type remains integer.
+        f.write(f'      <PointData Scalars="{scalar}" Vectors="vel">\n')
+        for key, values in d.items():
+            if key == "pos":
+                continue
+            dtype = "Int32" if key == "type" else "Float32"
+            components = ' NumberOfComponents="3"' if values.ndim == 2 else ""
+            f.write(f'        <DataArray type="{dtype}" Name="{key}"{components} format="ascii">\n')
+            f.write((_fmt_int(values) if key == "type" else _fmt_float(values)) + "\n")
             f.write('        </DataArray>\n')
-        f.write('        <DataArray type="Float32" Name="vel" '
-                'NumberOfComponents="3" format="ascii">\n')
-        f.write(_fmt_float(d["vel"]) + "\n")
-        f.write('        </DataArray>\n')
-        f.write('        <DataArray type="Int32" Name="type" format="ascii">\n')
-        f.write(_fmt_int(d["type"]) + "\n")
-        f.write('        </DataArray>\n')
         f.write('      </PointData>\n')
         f.write('    </Piece>\n')
         f.write('  </PolyData>\n')

@@ -6,10 +6,11 @@ from input.Config import Solv
 
 class DamPtlGeneration:
     """
-    Generate Particle Structure for 2D Dam Break Simulation
+    Generate particle structures for a 3D dam break (y vertical, z depth).
     """
 
     def __init__(self, solv: Solv) -> None:
+        """Keep the shared configuration and SPH lattice spacing."""
         self.solv = solv
         self.dx = solv.dx
         self.bnd_layer = solv.bnd_layer
@@ -20,48 +21,39 @@ class DamPtlGeneration:
         dx = self.dx
         n_x = int(round(solv.fluid_width / dx))
         n_y = int(round(solv.fluid_height / dx))
-        grid_x, grid_y = np.meshgrid(
+        n_z = int(round(solv.fluid_depth / dx))
+        grid_x, grid_y, grid_z = np.meshgrid(
             solv.fluid_origin_x + np.arange(n_x) * dx,
             solv.fluid_origin_y + np.arange(n_y) * dx,
+            solv.fluid_origin_z + np.arange(n_z) * dx,
             indexing="ij"
         )
         x = grid_x.ravel()
         y = grid_y.ravel()
-        return np.stack([x, y, np.zeros_like(x)], axis=1)  # [N_sph, 3]
+        z = grid_z.ravel()
+        return np.stack([x, y, z], axis=1)  # [N_sph, 3]
 
     def boundary_particle(self) -> np.ndarray:
         """Returns boundary particle positions as numpy array [N_bnd, 3].
 
-        Tank geometry (open top):
-          - Bottom wall: y in [-bnd*dx, -dx], x covers full width + corners
-          - Left  wall:  x in [-bnd*dx, -dx], y in [0, tank_height + bnd*dx)
-          - Right wall:  x in [tank_width, tank_width+(bnd-1)*dx], same y range
+        Five dummy walls surround the tank: bottom, left, right, front and back.
+        Integer lattice indices assign each edge / corner exactly once.
+        Side walls extend bnd layers above the opening; no ceiling is generated.
         """
         solv = self.solv
         dx = self.dx
         bnd = self.bnd_layer
 
         n_x_tank = int(round(solv.tank_width / dx))
-        n_y_wall  = int(round(solv.tank_height / dx)) + bnd
-
-        # Bottom wall including corner regions
-        x_btm = np.arange(-bnd, n_x_tank + bnd) * dx
-        y_btm = np.arange(-bnd, 0) * dx
-        gx, gy = np.meshgrid(x_btm, y_btm, indexing="ij")
-        btm = np.stack([gx.ravel(), gy.ravel(), np.zeros(gx.size)], axis=1)
-
-        # Left wall (y >= 0, corners already covered by bottom)
-        x_lft  = np.arange(-bnd, 0) * dx
-        y_wall = np.arange(0, n_y_wall) * dx
-        gx, gy = np.meshgrid(x_lft, y_wall, indexing="ij")
-        lft = np.stack([gx.ravel(), gy.ravel(), np.zeros(gx.size)], axis=1)
-
-        # Right wall (y >= 0, corners already covered by bottom)
-        x_rgt = solv.tank_width + np.arange(0, bnd) * dx
-        gx, gy = np.meshgrid(x_rgt, y_wall, indexing="ij")
-        rgt = np.stack([gx.ravel(), gy.ravel(), np.zeros(gx.size)], axis=1)
-
-        return np.vstack([btm, lft, rgt])  # [N_bnd, 3]
+        n_y_tank = int(round(solv.tank_height / dx))
+        n_z_tank = int(round(solv.tank_depth / dx))
+        # A single shell mask prevents duplicated corner masses in the density sum.
+        gx, gy, gz = np.meshgrid(np.arange(-bnd, n_x_tank + bnd),
+                                np.arange(-bnd, n_y_tank + bnd),
+                                np.arange(-bnd, n_z_tank + bnd), indexing="ij")
+        wall = ((gy < 0) | (gx < 0) | (gx >= n_x_tank)
+                | (gz < 0) | (gz >= n_z_tank))
+        return np.stack([gx[wall], gy[wall], gz[wall]], axis=1) * dx
 
     def build(self) -> tuple[SPHptl, BNDptl]:
         """Build SPHptl and BNDptl structs from the dam-break initial configuration.
@@ -72,6 +64,8 @@ class DamPtlGeneration:
         """
         solv = self.solv
 
+        solv.validate_sph()
+
         fluid_pos = self.fluid_particle()    # [N_sph, 3]
         bnd_pos   = self.boundary_particle() # [N_bnd, 3]
 
@@ -79,7 +73,7 @@ class DamPtlGeneration:
         n_bnd = len(bnd_pos)
 
         dev = solv.device
-        mass = solv.rho0 * solv.dx * solv.dx    # 2D mass
+        mass = solv.rho0 * solv.dx ** 3        # 3D particle mass [kg]
 
         sph = SPHptl()
         sph.pos     = wp.array(fluid_pos, dtype=wp.vec3, device=dev)
@@ -90,6 +84,10 @@ class DamPtlGeneration:
         sph.acc     = wp.zeros(n_sph, dtype=wp.vec3,  device=dev)
         sph.m       = wp.full(n_sph, mass, dtype=float, device=dev)
         sph.flt     = wp.zeros(n_sph, dtype=float, device=dev)
+        # SPH-DEM fields at fluid positions; SPH-only runs keep these initial values.
+        sph.porosity = wp.full(n_sph, 1.0, dtype=float, device=dev)
+        sph.pgf      = wp.zeros(n_sph, dtype=wp.vec3, device=dev)
+        sph.acc_dem  = wp.zeros(n_sph, dtype=wp.vec3, device=dev)
 
         bnd = BNDptl()
         bnd.pos     = wp.array(bnd_pos, dtype=wp.vec3, device=dev)

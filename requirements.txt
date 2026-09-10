@@ -1,0 +1,6 @@
+# CPU / CUDA kernels and particle arrays
+warp-lang>=1.17.0
+numpy>=1.26
+# Combined SPH-DEM animation and GIF encoding
+matplotlib>=3.8
+Pillow>=10.0
