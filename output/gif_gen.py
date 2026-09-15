@@ -74,7 +74,9 @@ def save_gif(frames: list[dict],
              fps: int = 20,
              clip: float = 99.0,
              ani_dir: str = ANI_DIR,
-             name: str = "dam_break_3d") -> str:
+             name: str = "dam_break_3d",
+             axis_limits: tuple[tuple[float, float, float],
+                                tuple[float, float, float]] | None = None) -> str:
     """
     Render SPH points and physical DEM sphere surfaces together in a 3D GIF.
 
@@ -84,10 +86,13 @@ def save_gif(frames: list[dict],
     fps: playback frames per second; physical time is printed on every frame
     clip: percentile at which the fluid colour scale saturates
     ani_dir, name: output directory and GIF basename
+    axis_limits: optional fixed ((x_min,y_min,z_min),(x_max,y_max,z_max)) [m].
+        If omitted, one fixed range containing every moving particle is used.
 
     return: saved GIF path
-    All moving particles are drawn. Fixed particle walls use a tank outline
-    to keep the interior visible; VTK retains every wall particle.
+    Moving particles are drawn; explicit limits keep the displayed axes fixed
+    instead of expanding them for out-of-range particles. Fixed walls use a
+    tank outline, while VTK retains every wall particle.
     """
     if not frames:
         raise ValueError("no frames to write")
@@ -102,15 +107,28 @@ def save_gif(frames: list[dict],
     vmax = max(float(np.percentile(every, clip)), vmin + 1.0)
     extend = "max" if every.max() > vmax else "neither"
     pad = solv.bnd_layer * solv.dx
-    lower = np.array([-pad, -pad, -pad])
-    upper = np.array([solv.tank_width + pad, solv.tank_depth + pad, solv.tank_height + pad])
-    # Include all moving particles, even above the open top, with fixed axes in time.
-    for frame in frames:
-        lower = np.minimum(lower, frame["pos_sph"].min(axis=0) - solv.dx)
-        upper = np.maximum(upper, frame["pos_sph"].max(axis=0) + solv.dx)
-        if "pos_dem" in frame:
-            lower = np.minimum(lower, (frame["pos_dem"] - frame["radius_dem"][:, None]).min(axis=0) - pad)
-            upper = np.maximum(upper, (frame["pos_dem"] + frame["radius_dem"][:, None]).max(axis=0) + pad)
+    if axis_limits is None:
+        lower = np.array([-pad, -pad, -pad])
+        upper = np.array([solv.tank_width + pad, solv.tank_depth + pad,
+                          solv.tank_height + pad])
+        # Include all moving particles, even above the open top, with fixed axes in time.
+        for frame in frames:
+            lower = np.minimum(lower, frame["pos_sph"].min(axis=0) - solv.dx)
+            upper = np.maximum(upper, frame["pos_sph"].max(axis=0) + solv.dx)
+            if "pos_dem" in frame:
+                lower = np.minimum(
+                    lower,
+                    (frame["pos_dem"] - frame["radius_dem"][:, None]).min(axis=0) - pad)
+                upper = np.maximum(
+                    upper,
+                    (frame["pos_dem"] + frame["radius_dem"][:, None]).max(axis=0) + pad)
+    else:
+        lower = np.asarray(axis_limits[0], dtype=float)
+        upper = np.asarray(axis_limits[1], dtype=float)
+        if (lower.shape != (3,) or upper.shape != (3,)
+                or not np.isfinite(lower).all() or not np.isfinite(upper).all()
+                or np.any(upper <= lower)):
+            raise ValueError("axis_limits must contain finite increasing xyz bounds")
 
     fig = plt.figure(figsize=(10, 6.4), dpi=100)
     # Keep DEM visible through the translucent fluid, as an interior-particle overlay.
