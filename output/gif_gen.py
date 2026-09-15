@@ -56,13 +56,14 @@ def sphere_faces(n_lat: int = 10, n_lon: int = 16) -> np.ndarray:
     Build quadrilateral faces of a unit sphere centered at the origin.
 
     n_lat, n_lon: latitude / longitude subdivisions for display only
-    return: unit-coordinate vertices [n_lat*n_lon,4,3]; y is the polar axis
+    return: unit-coordinate vertices [n_lat*n_lon,4,3]; z is the polar axis
     The caller scales by each physical radius and translates to each center.
     """
     latitude, longitude = np.meshgrid(np.linspace(0.0, np.pi, n_lat + 1),
                                      np.linspace(0.0, 2.0*np.pi, n_lon + 1), indexing="ij")
-    points = np.stack([np.sin(latitude)*np.cos(longitude), np.cos(latitude),
-                       np.sin(latitude)*np.sin(longitude)], axis=-1)
+    points = np.stack([np.sin(latitude)*np.cos(longitude),
+                       np.sin(latitude)*np.sin(longitude),
+                       np.cos(latitude)], axis=-1)
     return np.stack([points[:-1, :-1], points[1:, :-1],
                      points[1:, 1:], points[:-1, 1:]], axis=2).reshape(-1, 4, 3)
 
@@ -78,7 +79,7 @@ def save_gif(frames: list[dict],
     Render SPH points and physical DEM sphere surfaces together in a 3D GIF.
 
     frames: synchronized host states from collect_frame, in time order
-    solv: tank dimensions and SPH spacing; y is vertical, z is tank depth
+    solv: tank dimensions and SPH spacing; z is vertical, y is tank depth
     field: fluid colour field (pres, vel or rho), with a fixed scale for all frames
     fps: playback frames per second; physical time is printed on every frame
     clip: percentile at which the fluid colour scale saturates
@@ -102,7 +103,7 @@ def save_gif(frames: list[dict],
     extend = "max" if every.max() > vmax else "neither"
     pad = solv.bnd_layer * solv.dx
     lower = np.array([-pad, -pad, -pad])
-    upper = np.array([solv.tank_width + pad, solv.tank_height + pad, solv.tank_depth + pad])
+    upper = np.array([solv.tank_width + pad, solv.tank_depth + pad, solv.tank_height + pad])
     # Include all moving particles, even above the open top, with fixed axes in time.
     for frame in frames:
         lower = np.minimum(lower, frame["pos_sph"].min(axis=0) - solv.dx)
@@ -115,30 +116,30 @@ def save_gif(frames: list[dict],
     # Keep DEM visible through the translucent fluid, as an interior-particle overlay.
     ax = fig.add_subplot(111, projection="3d", computed_zorder=False)
     ax.set_xlim(lower[0], upper[0])
-    # Plot (x,z,y) so physical y is vertical without changing stored coordinates.
-    ax.set_ylim(lower[2], upper[2])
-    ax.set_zlim(lower[1], upper[1])
-    ax.set_box_aspect((upper - lower)[[0, 2, 1]])  # the same meter scale on each axis
+    # Native xyz plotting keeps physical z vertical and y as tank depth.
+    ax.set_ylim(lower[1], upper[1])
+    ax.set_zlim(lower[2], upper[2])
+    ax.set_box_aspect(upper - lower)  # the same meter scale on each axis
     ax.view_init(elev=24, azim=-65)
     ax.set_proj_type("ortho")
-    ax.set_xlabel("x [m]")
-    ax.set_ylabel("z [m] (depth)")
-    ax.set_zlabel("y [m] (height)")
+    ax.set_xlabel("x [m] (length)")
+    ax.set_ylabel("y [m] (depth)")
+    ax.set_zlabel("z [m] (height)")
     ax.grid(False)
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.pane.fill = False
     # Twelve outline edges indicate the tank; its upper opening has no wall surface.
     corners = np.array([[x, y, z] for x in (0.0, solv.tank_width)
-                        for y in (0.0, solv.tank_height) for z in (0.0, solv.tank_depth)])
+                        for y in (0.0, solv.tank_depth) for z in (0.0, solv.tank_height)])
     for i in range(len(corners)):
         for j in range(i + 1, len(corners)):
             if np.count_nonzero(corners[i] != corners[j]) == 1:
                 edge = corners[[i, j]]
-                ax.plot(edge[:, 0], edge[:, 2], edge[:, 1], color="0.55", linewidth=0.7, alpha=0.65, zorder=1)
+                ax.plot(edge[:, 0], edge[:, 1], edge[:, 2], color="0.55", linewidth=0.7, alpha=0.65, zorder=1)
 
     # Translucent SPH points let the submerged DEM spheres remain visible.
     pos = frames[0]["pos_sph"]
-    sc = ax.scatter(pos[:, 0], pos[:, 2], pos[:, 1], c=frames[0][key],
+    sc = ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2], c=frames[0][key],
                     s=5, cmap="viridis", vmin=vmin, vmax=vmax,
                     alpha=0.30, depthshade=False, linewidths=0, zorder=2)
     dem = None
@@ -147,14 +148,14 @@ def save_gif(frames: list[dict],
         # Fixed lighting displays the sphere curvature without changing its radius.
         normals = unit_faces.mean(axis=1)
         normals /= np.linalg.norm(normals, axis=1)[:, None]
-        light = np.array([-0.5, 1.0, -0.8])
+        light = np.array([-0.5, -0.8, 1.0])
         light /= np.linalg.norm(light)
         shade = 0.45 + 0.55 * np.maximum(normals @ light, 0.0)
         colours = shade[:, None] * np.array([1.0, 0.55, 0.05])
         dem_pos = frames[0]["pos_dem"]
         radii = frames[0]["radius_dem"]
         vertices = dem_pos[:, None, None, :] + radii[:, None, None, None] * unit_faces[None]
-        dem = Poly3DCollection(vertices.reshape(-1, 4, 3)[:, :, [0, 2, 1]],
+        dem = Poly3DCollection(vertices.reshape(-1, 4, 3),
                                facecolors=np.tile(colours, (len(dem_pos), 1)),
                                edgecolors="none", zsort="average", zorder=3)
         ax.add_collection3d(dem)
@@ -175,12 +176,12 @@ def save_gif(frames: list[dict],
         """
         frame = frames[i]
         pos = frame["pos_sph"]
-        sc._offsets3d = (pos[:, 0], pos[:, 2], pos[:, 1])
+        sc._offsets3d = (pos[:, 0], pos[:, 1], pos[:, 2])
         sc.set_array(frame[key])
         if dem is not None:
             vertices = (frame["pos_dem"][:, None, None, :]
                         + frame["radius_dem"][:, None, None, None] * unit_faces[None])
-            dem.set_verts(vertices.reshape(-1, 4, 3)[:, :, [0, 2, 1]])
+            dem.set_verts(vertices.reshape(-1, 4, 3))
         title.set_text(f"3D Dam Break | t = {frame['t']:.4f} s")
         return sc, title
 

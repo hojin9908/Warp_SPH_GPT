@@ -24,7 +24,7 @@ class DEMPtlGeneration:
         The origin specifies the first sphere center, not the edge of the block.
         The top is open; only the bottom and side walls constrain the centers.
 
-        return: numpy positions [N_dem, 3] [m], with y vertical and z depth
+        return: numpy positions [N_dem, 3] [m], with z vertical and y depth
         """
         solv = self.solv
         # Moving DEM centers, ordered independently of later HashGrid sorting.
@@ -38,8 +38,8 @@ class DEMPtlGeneration:
         if (pos[:, 0].min() < solv.dem_radius or
                 pos[:, 0].max() + solv.dem_radius > solv.tank_width or
                 pos[:, 1].min() < solv.dem_radius or
-                pos[:, 2].min() < solv.dem_radius or
-                pos[:, 2].max() + solv.dem_radius > solv.tank_depth):
+                pos[:, 1].max() + solv.dem_radius > solv.tank_depth or
+                pos[:, 2].min() < solv.dem_radius):
             raise ValueError("initial DEM spheres must lie inside the tank walls")
         return pos
 
@@ -48,7 +48,7 @@ class DEMPtlGeneration:
         Generate fixed DEM spheres on the bottom and four vertical tank walls.
 
         Wall centers lie one boundary radius outside the fluid tank. A shell
-        mask assigns shared edges / corners once, with no ceiling at y=height.
+        mask assigns shared edges / corners once, with no ceiling at z=height.
 
         return: numpy positions [N_dem_bnd, 3] [m]
         """
@@ -56,14 +56,14 @@ class DEMPtlGeneration:
         radius = solv.dem_bnd_radius
         # Equal spacing no larger than the configured spacing, including corners.
         nx = int(np.ceil((solv.tank_width + 2.0 * radius) / solv.dem_bnd_spacing))
-        ny = int(np.ceil((solv.tank_height + radius) / solv.dem_bnd_spacing))
-        nz = int(np.ceil((solv.tank_depth + 2.0 * radius) / solv.dem_bnd_spacing))
+        ny = int(np.ceil((solv.tank_depth + 2.0 * radius) / solv.dem_bnd_spacing))
+        nz = int(np.ceil((solv.tank_height + radius) / solv.dem_bnd_spacing))
         x = np.linspace(-radius, solv.tank_width + radius, nx + 1)
-        y = np.linspace(-radius, solv.tank_height, ny + 1)
-        z = np.linspace(-radius, solv.tank_depth + radius, nz + 1)
+        y = np.linspace(-radius, solv.tank_depth + radius, ny + 1)
+        z = np.linspace(-radius, solv.tank_height, nz + 1)
         gx, gy, gz = np.meshgrid(np.arange(nx + 1), np.arange(ny + 1),
                                 np.arange(nz + 1), indexing="ij")
-        wall = ((gy == 0) | (gx == 0) | (gx == nx) | (gz == 0) | (gz == nz))
+        wall = ((gz == 0) | (gx == 0) | (gx == nx) | (gy == 0) | (gy == ny))
         return np.stack([x[gx[wall]], y[gy[wall]], z[gz[wall]]], axis=1)
 
     def build(self) -> tuple[DEMptl, DEMBNDptl]:

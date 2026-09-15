@@ -52,7 +52,8 @@ def scene(device, **kwargs):
     settings = dict(dx=0.04, h=0.052, support=0.104, tank_width=0.8,
                     tank_height=0.8, tank_depth=0.32, fluid_width=0.4,
                     fluid_height=0.4, fluid_depth=0.32, dem_nx=2,
-                    dem_ny=1, dem_nz=1, dem_origin_z=0.16, grid_slice=32)
+                    dem_ny=1, dem_nz=1, dem_origin_y=0.16,
+                    dem_origin_z=0.60, grid_slice=32)
     settings.update(kwargs)
     solv = Solv(device=device, **settings)
     P, B = DamPtlGeneration(solv).build()
@@ -200,7 +201,7 @@ class DEMTests(unittest.TestCase):
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=3)
-                D.pos.fill_(wp.vec3(0.3, 0.6, 0.16))
+                D.pos.fill_(wp.vec3(0.3, 0.16, 0.6))
                 grids[2].build(D.pos, s.dem_support)
                 count = run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
                 offsets = D.contact_dem_offset_old.numpy()
@@ -225,9 +226,9 @@ class DEMTests(unittest.TestCase):
                 self.assertEqual(D.tang_dem_old.shape, (0,))
                 self.assertEqual(contact_storage_nbytes(D), 16 * (3 + 1))
 
-                pair = np.array([[0.200, 0.60, 0.16],
-                                 [0.249, 0.60, 0.16],
-                                 [0.600, 0.60, 0.16]], dtype=np.float32)
+                pair = np.array([[0.200, 0.16, 0.60],
+                                 [0.249, 0.16, 0.60],
+                                 [0.600, 0.16, 0.60]], dtype=np.float32)
                 D.pos.assign(pair)
                 D.vel.assign(np.array([[0, 0, 0], [0, 0.01, 0], [0, 0, 0]],
                                       dtype=np.float32))
@@ -239,7 +240,7 @@ class DEMTests(unittest.TestCase):
                 self.assertEqual(D.contact_dem_id_new.shape, (0,))
                 self.assertEqual(contact_storage_nbytes(D), 16 * (3 + 1) + 16 * 2)
 
-                D.pos.fill_(wp.vec3(0.3, 0.6, 0.16))
+                D.pos.fill_(wp.vec3(0.3, 0.16, 0.6))
                 grids[2].build(D.pos, s.dem_support)
                 self.assertEqual(
                     run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt), 6)
@@ -262,9 +263,9 @@ class DEMTests(unittest.TestCase):
                 self.assertEqual(contact_storage_nbytes(D),
                                  16 * (3 + 1) + 16 * (6 + 2))
 
-                D.pos.assign(np.array([[0.1, 0.6, 0.16],
-                                       [0.4, 0.6, 0.16],
-                                       [0.7, 0.6, 0.16]], dtype=np.float32))
+                D.pos.assign(np.array([[0.1, 0.16, 0.60],
+                                       [0.4, 0.16, 0.60],
+                                       [0.7, 0.16, 0.60]], dtype=np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 self.assertEqual(
                     run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt), 0)
@@ -289,9 +290,9 @@ class DEMTests(unittest.TestCase):
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=3, g=0.0)
-                pair = np.array([[0.200, 0.60, 0.16],
-                                 [0.249, 0.60, 0.16],
-                                 [0.600, 0.60, 0.16]], dtype=np.float32)
+                pair = np.array([[0.200, 0.16, 0.60],
+                                 [0.249, 0.16, 0.60],
+                                 [0.600, 0.16, 0.60]], dtype=np.float32)
                 velocity = np.array([[0, 0, 0], [0, 0.01, 0], [0, 0, 0]],
                                     dtype=np.float32)
                 D.pos.assign(pair)
@@ -322,10 +323,10 @@ class DEMTests(unittest.TestCase):
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=4)
                 first_positions = np.array([
-                    [0.300, 0.600, 0.16],
-                    [0.349, 0.600, 0.16],
-                    [0.251, 0.600, 0.16],
-                    [0.600, 0.700, 0.16],
+                    [0.300, 0.16, 0.600],
+                    [0.349, 0.16, 0.600],
+                    [0.251, 0.16, 0.600],
+                    [0.600, 0.16, 0.700],
                 ], dtype=np.float32)
                 D.pos.assign(first_positions)
                 D.vel.assign(np.array([
@@ -340,8 +341,8 @@ class DEMTests(unittest.TestCase):
                 self.assertEqual(set(ids[offsets[0]:offsets[1]]), {1, 2})
 
                 second_positions = first_positions.copy()
-                second_positions[1] = [0.600, 0.600, 0.16]
-                second_positions[3] = [0.300, 0.649, 0.16]
+                second_positions[1] = [0.600, 0.16, 0.600]
+                second_positions[3] = [0.300, 0.16, 0.649]
                 D.pos.assign(second_positions)
                 grids[2].build(D.pos, s.dem_support)
                 self.assertEqual(
@@ -360,9 +361,9 @@ class DEMTests(unittest.TestCase):
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=3)
-                D.pos.assign(np.array([[0.200, 0.60, 0.16],
-                                       [0.249, 0.60, 0.16],
-                                       [0.600, 0.60, 0.16]], dtype=np.float32))
+                D.pos.assign(np.array([[0.200, 0.16, 0.60],
+                                       [0.249, 0.16, 0.60],
+                                       [0.600, 0.16, 0.60]], dtype=np.float32))
                 D.vel.assign(np.array([[0, 0.00, 0],
                                        [0, 0.01, 0],
                                        [0, 0.00, 0]], dtype=np.float32))
@@ -373,9 +374,9 @@ class DEMTests(unittest.TestCase):
 
                 # Translate the surviving pair and move the third particle so
                 # HashGrid is rebuilt without changing the stable pair IDs.
-                D.pos.assign(np.array([[0.401, 0.60, 0.16],
-                                       [0.450, 0.60, 0.16],
-                                       [0.100, 0.72, 0.16]], dtype=np.float32))
+                D.pos.assign(np.array([[0.401, 0.16, 0.60],
+                                       [0.450, 0.16, 0.60],
+                                       [0.100, 0.16, 0.72]], dtype=np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 self.assertEqual(
                     run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt), 2)
@@ -387,7 +388,7 @@ class DEMTests(unittest.TestCase):
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=2, dem_ny=1)
-                D.pos.assign(np.array([[0.2, 0.6, 0], [0.249, 0.6, 0]], dtype=np.float32))
+                D.pos.assign(np.array([[0.2, 0.16, 0.6], [0.249, 0.16, 0.6]], dtype=np.float32))
                 D.vel.assign(np.array([[1, 0, 0], [-1, 0, 0]], dtype=np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
@@ -399,7 +400,7 @@ class DEMTests(unittest.TestCase):
                 seeded_history = D.tang_dem_old.numpy()
                 seeded_history[D.contact_dem_id_old.numpy() >= 0] = [0.0, 0.1, 0.0]
                 D.tang_dem_old.assign(seeded_history)
-                D.pos.assign(np.array([[0.2, 0.6, 0], [1.5, 0.6, 0]], dtype=np.float32))
+                D.pos.assign(np.array([[0.2, 0.16, 0.6], [1.5, 0.16, 0.6]], dtype=np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
                 self.assertEqual(active_contact_count(D, "dem"), 0)
@@ -407,7 +408,7 @@ class DEMTests(unittest.TestCase):
                 self.assertEqual(D.contact_dem_id_old.shape, (0,))
                 self.assertEqual(D.tang_dem_old.shape, (0,))
                 # Recontact must start from zero instead of reviving the released value.
-                D.pos.assign(np.array([[0.2, 0.6, 0], [0.249, 0.6, 0]], dtype=np.float32))
+                D.pos.assign(np.array([[0.2, 0.16, 0.6], [0.249, 0.16, 0.6]], dtype=np.float32))
                 D.vel.assign(np.array([[0, 0, 0], [0, 0.01, 0]], dtype=np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
@@ -419,7 +420,7 @@ class DEMTests(unittest.TestCase):
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=2, dem_ny=1)
-                D.pos.assign(np.array([[0.2, 0.6, 0], [0.249, 0.6, 0]], dtype=np.float32))
+                D.pos.assign(np.array([[0.2, 0.16, 0.6], [0.249, 0.16, 0.6]], dtype=np.float32))
                 D.vel.assign(np.array([[0, 0, 0], [0, 0.01, 0]], dtype=np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 # Hold geometry fixed to isolate the history spring's growth over two calls.
@@ -437,7 +438,7 @@ class DEMTests(unittest.TestCase):
                 # Large slip must reach the reference Coulomb limit.
                 D.vel.assign(np.array([[0, 0, 0], [0, 10, 0]], dtype=np.float32))
                 D.omega.zero_()
-                D.pos.assign(np.array([[0.2, 0.6, 0], [0.249, 0.6, 0]], dtype=np.float32))
+                D.pos.assign(np.array([[0.2, 0.16, 0.6], [0.249, 0.16, 0.6]], dtype=np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
                 self.assertAlmostEqual(float(D.force.numpy()[0, 1]), s.dem_mu * s.dem_K * 0.001, delta=0.01)
@@ -448,8 +449,8 @@ class DEMTests(unittest.TestCase):
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=1, dem_ny=1)
                 # Enter the contact envelope of the spherical wall's square lattice.
-                contact_pos = np.array([[0.4, 0.020, 0.16]], dtype=np.float32)
-                contact_vel = wp.vec3(0.1, -0.2, 0)
+                contact_pos = np.array([[0.4, 0.16, 0.020]], dtype=np.float32)
+                contact_vel = wp.vec3(0.1, 0.0, -0.2)
                 D.pos.assign(contact_pos)
                 D.vel.fill_(contact_vel)
                 grids[2].build(D.pos, s.dem_support)
@@ -465,7 +466,7 @@ class DEMTests(unittest.TestCase):
                 first_neighbour = int(bnd_ids[0])
                 first_history = contact_history(D, "bnd", 0, first_neighbour).copy()
                 self.assertGreater(np.linalg.norm(first_history), 0)
-                self.assertGreater(D.force.numpy()[0, 1], 0)
+                self.assertGreater(D.force.numpy()[0, 2], 0)
                 self.assertGreater(np.linalg.norm(D.torque.numpy()[0]), 0)
                 wp.launch(Kernel_step_dem, dim=1, inputs=[D, s.dt])
                 np.testing.assert_array_equal(DB.pos.numpy(), fixed_pos)
@@ -474,7 +475,7 @@ class DEMTests(unittest.TestCase):
                 for field in ("acc", "force", "torque"):
                     self.assertFalse(hasattr(DB, field))
                 # Clear wall history after leaving contact and the wall query.
-                D.pos.fill_(wp.vec3(0.4, 0.8, 0.16))
+                D.pos.fill_(wp.vec3(0.4, 0.16, 0.8))
                 grids[2].build(D.pos, s.dem_support)
                 run_bc_dem(D, DB, grids[3].id, s.dem_bnd_radius, s.dt)
                 self.assertEqual(active_contact_count(D, "bnd"), 0)
@@ -520,16 +521,17 @@ class DEMTests(unittest.TestCase):
                 grids[2].build(D.pos, s.dem_support)
                 P.vel.fill_(wp.vec3(0.2, 0, 0))
                 # A constant hydrostatic -grad(p) gives the exact sphere-volume buoyancy load.
-                P.pgf.fill_(wp.vec3(0, s.rho0 * s.g, 0))
+                P.pgf.fill_(wp.vec3(0, 0, s.rho0 * s.g))
                 P.porosity.fill_(0.7)
                 wp.launch(Kernel_interaction_dem, dim=1,
                           inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h,
                                   s.mu, s.dem_porosity_min, s.dem_porosity_max, s.dt])
-                np.testing.assert_allclose(D.pressure_force.numpy()[0], [0, s.dem_volume*s.rho0*s.g, 0], rtol=2e-6)
+                np.testing.assert_allclose(D.pressure_force.numpy()[0],
+                                           [0, 0, s.dem_volume*s.rho0*s.g], rtol=2e-6)
                 self.assertGreater(D.drag.numpy()[0, 0], 0)
                 self.assertLess(D.drag.numpy()[0, 0] / s.dem_mass * s.dt, 0.2)
                 # Preserve already-computed SPH forces when adding the DEM contribution.
-                P.acc.fill_(wp.vec3(1.0, -s.g, 0.0))
+                P.acc.fill_(wp.vec3(1.0, 0.0, -s.g))
                 initial_acc = P.acc.numpy().copy()
                 wp.launch(Kernel_interaction_sph, dim=P.pos.shape[0],
                           inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h])
@@ -538,7 +540,7 @@ class DEMTests(unittest.TestCase):
                 np.testing.assert_allclose(reaction, -D.drag.numpy().sum(axis=0), rtol=3e-6, atol=1e-5)
                 np.testing.assert_allclose(P.acc.numpy(), initial_acc + P.acc_dem.numpy(), rtol=1e-6)
                 # Moving above all fluid support must remove the previously stored loads.
-                D.pos.fill_(wp.vec3(0.24, 2.0, 0.16))
+                D.pos.fill_(wp.vec3(0.24, 0.16, 2.0))
                 grids[2].build(D.pos, s.dem_support)
                 wp.launch(Kernel_interaction_dem, dim=1,
                           inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h,
@@ -559,20 +561,21 @@ class DEMTests(unittest.TestCase):
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device)
                 for part in (P, B):
-                    part.pres.assign((10000 - s.rho0*s.g*part.pos.numpy()[:, 1]).astype(np.float32))
+                    part.pres.assign((10000 - s.rho0*s.g*part.pos.numpy()[:, 2]).astype(np.float32))
                 wp.launch(Kernel_prep_sphdem, dim=P.pos.shape[0],
                           inputs=[P, B, D, *(grid.id for grid in grids[:3]),
                                   s.dem_support, s.dem_h, s.support, s.h,
                                   s.dem_porosity_min, s.dem_porosity_max])
                 # Interior support avoids a free-surface truncation in this gradient check.
-                center = np.argmin(np.linalg.norm(P.pos.numpy()-[0.24, 0.24, 0.16], axis=1))
-                np.testing.assert_allclose(P.pgf.numpy()[center], [0, s.rho0*s.g, 0], rtol=0.06, atol=0.02)
+                center = np.argmin(np.linalg.norm(P.pos.numpy()-[0.24, 0.16, 0.24], axis=1))
+                np.testing.assert_allclose(P.pgf.numpy()[center],
+                                           [0, 0, s.rho0*s.g], rtol=0.06, atol=0.02)
 
     def test_dry_free_fall_and_sph_regression(self):
         """Check gravity is added once and dry DEM does not alter the original SPH trajectory."""
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
-                s, P, B, D, DB, grids = scene(device, dem_origin_y=1.5)
+                s, P, B, D, DB, grids = scene(device, dem_origin_z=1.5)
                 # Independent SPH-only state supplies the comparison trajectory.
                 P0, B0 = DamPtlGeneration(s).build()
                 gs = wp.HashGrid(32, 32, 32)
@@ -587,9 +590,11 @@ class DEMTests(unittest.TestCase):
                     SPHDEM_OneStep(s, P, B, D, DB, *grids, step)
                 np.testing.assert_array_equal(P.pos.numpy(), P0.pos.numpy())
                 np.testing.assert_array_equal(P.vel.numpy(), P0.vel.numpy())
-                np.testing.assert_allclose(D.vel.numpy()[:, 1], -5*s.g*s.dt, rtol=1e-6)
+                np.testing.assert_array_equal(D.vel.numpy()[:, :2], 0.0)
+                np.testing.assert_allclose(D.vel.numpy()[:, 2], -5*s.g*s.dt, rtol=1e-6)
                 # Semi-implicit Euler displacement sums the five updated velocities: 1+...+5.
-                np.testing.assert_allclose(D.pos.numpy()[:, 1], initial[:, 1]-s.g*s.dt**2*15, atol=5e-7)
+                np.testing.assert_allclose(D.pos.numpy()[:, 2],
+                                           initial[:, 2]-s.g*s.dt**2*15, atol=5e-7)
 
     def test_separate_output_final_frame_and_animation(self):
         """Check phase-specific VTK types, the off-cadence final state and matching GIF frames."""

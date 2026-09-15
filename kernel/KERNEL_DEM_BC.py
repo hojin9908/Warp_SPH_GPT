@@ -66,7 +66,7 @@ def Kernel_bc_dem(P_dem: DEMptl,
                 if P_dem.contact_bnd_id_old[old_index] == dbj:
                     tangent = P_dem.tang_bnd_old[old_index]
 
-            normal = wp.vec3(0.0, -1.0, 0.0)
+            normal = wp.vec3(0.0, 0.0, -1.0)
             if dist > 1.0e-12:
                 normal = radb / dist
             fadb, displacement, torque_a = DEM_contact(

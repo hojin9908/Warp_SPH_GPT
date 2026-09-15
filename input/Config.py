@@ -10,15 +10,15 @@ class Solv:
 
     # simulation setting
     dx: 입자 간격
-    tank_width: 수조 내부 폭
-    tank_height: 수조 내부 높이 (위쪽은 열려 있다)
-    tank_depth: 수조 내부 z 방향 깊이 [m]
-    fluid_width: 초기 유체 블록 폭
-    fluid_height: 초기 유체 블록 높이
-    fluid_depth: 초기 유체 블록 깊이 [m]
-    fluid_origin_x: 유체 블록 왼쪽 아래 모서리 x
-    fluid_origin_y: 유체 블록 왼쪽 아래 모서리 y
-    fluid_origin_z: 초기 유체 블록의 앞쪽 모서리 z [m]
+    tank_width: 수조 내부 x 방향 길이 [m]
+    tank_height: 수조 내부 z 방향 높이 (위쪽은 열려 있다) [m]
+    tank_depth: 수조 내부 y 방향 깊이 [m]
+    fluid_width: 초기 유체 블록 x 방향 길이 [m]
+    fluid_height: 초기 유체 블록 z 방향 높이 [m]
+    fluid_depth: 초기 유체 블록 y 방향 깊이 [m]
+    fluid_origin_x: 초기 유체 블록의 왼쪽 x 좌표 [m]
+    fluid_origin_y: 초기 유체 블록의 앞쪽 y 좌표 [m]
+    fluid_origin_z: 초기 유체 블록의 바닥 z 좌표 [m]
     bnd_layer: dummy boundary particle 겹 수
     h: smoothing length
     support: Support radius
@@ -28,7 +28,7 @@ class Solv:
     gamma: Tait 지수 (1<=gamma<=7)
     c0: 수치 음속 [m/s]
     mu: 점성계수 [Pa s]
-    g: 중력 가속도
+    g: 음의 z 방향 중력 가속도 크기 [m/s^2]
     h_factor: 기준 smoothing length 배수 (기본 h = h_factor * dx)
 
     # density filter
@@ -132,8 +132,8 @@ class Solv:
     dem_nz: int = 2
     dem_spacing: float = 0.065
     dem_origin_x: float = 0.12
-    dem_origin_y: float = 0.62
-    dem_origin_z: float = 0.1675
+    dem_origin_y: float = 0.1675
+    dem_origin_z: float = 0.62
     dem_vel_x: float = 0.0
     dem_vel_y: float = 0.0
     dem_vel_z: float = 0.0
@@ -219,8 +219,8 @@ class Solv:
             if not math.isclose(cells, round(cells), abs_tol=1.0e-8):
                 raise ValueError(f"{name} must be an integer multiple of dx")
         for axis, extent, tank in (("x", self.fluid_width, self.tank_width),
-                                   ("y", self.fluid_height, self.tank_height),
-                                   ("z", self.fluid_depth, self.tank_depth)):
+                                   ("y", self.fluid_depth, self.tank_depth),
+                                   ("z", self.fluid_height, self.tank_height)):
             origin = getattr(self, "fluid_origin_" + axis)
             if (not math.isfinite(origin) or origin < 0.0 or origin + extent > tank + 1.0e-12
                     or round(extent / self.dx) < 1):

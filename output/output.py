@@ -145,7 +145,7 @@ def _save_vtp(d: dict[str, np.ndarray], step: int, t: float,
         f.write('  <PolyData>\n')
         f.write(f'    <Piece NumberOfPoints="{n}" NumberOfVerts="{n}" '
                 'NumberOfLines="0" NumberOfStrips="0" NumberOfPolys="0">\n')
-        # Geometry: 3D particle centers with y vertical and z depth.
+        # Geometry: raw xyz particle centers with z vertical and y depth.
         f.write('      <Points>\n')
         f.write('        <DataArray type="Float32" Name="Points" '
                 'NumberOfComponents="3" format="ascii">\n')

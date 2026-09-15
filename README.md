@@ -1,7 +1,7 @@
 # Warp 3D SPH–DEM Dam Break
 
-3차원 WCSPH Dam Break에 DEM 구 20개를 낙하시킨다. x는 수조 길이, y는 높이,
-z는 깊이이고 중력은 −y 방향이다. SPH와 DEM은 xyz 병진 운동을, DEM은 xyz 회전도 계산한다.
+3차원 WCSPH Dam Break에 DEM 구 20개를 낙하시킨다. x는 수조 길이, y는 깊이,
+z는 높이이고 중력은 −z 방향이다. SPH와 DEM은 xyz 병진 운동을, DEM은 xyz 회전도 계산한다.
 
 ## 실행
 
@@ -24,11 +24,11 @@ py -3.12 -m unittest discover -s tests -v
 
 ## 기본 3D 조건
 
-- 수조: 2 × 1 × 0.4 m (x × y × z), 바닥과 네 측면, 상부 개방.
-- 유체 블록: 0.5 × 0.5 × 0.4 m, 원점 (0, 0, 0), SPH 간격 0.02 m.
+- 수조: 2 × 0.4 × 1 m (x × y × z; 길이 × 깊이 × 높이), 바닥과 네 측면, 상부 개방.
+- 유체 블록: 0.5 × 0.4 × 0.5 m (x × y × z), 원점 (0, 0, 0), SPH 간격 0.02 m.
 - 입자 수: SPH 유체 12,500개, 3겹 dummy 경계 48,336개.
 - DEM: 반지름 0.025 m, 밀도 2500 kg/m³, 5 × 2 × 2 = 20개.
-  중심 간격 0.065 m, 첫 중심 (0.12, 0.62, 0.1675) m, 초기 병진·각속도 0.
+  중심 간격 0.065 m, 첫 중심 (0.12, 0.1675, 0.62) m, 초기 병진·각속도 0.
 - 접촉: 강성 20,000 N/m, 감쇠계수 4 N·s/m, 마찰계수 0.3.
   구의 질량에 맞춰 설정한 예제 물성이며 경계도 같은 접촉 계수를 사용한다.
 - DEM 경계: 반지름 0.01 m, 중심 간격 상한 0.02 m, 고정 구 14,688개.
@@ -41,8 +41,9 @@ SPH 질량은 `rho0*dx³`이고, DEM은 구 체적 `V=(4/3)*pi*R³`, 질량 `m=r
 토크 N·m, 관성모멘트 kg·m²이다. 구의 세 주관성모멘트가 같으므로 스칼라 `inertia`로
 3축 각속도를 적분하며, 회전 대칭 형상에는 별도 자세각이 필요하지 않다.
 
-`dem_nz`, `dem_origin_z`, `dem_vel_z`, `dem_omega_x/y/z`로 3차원 배치와 운동을 설정한다.
-수조·유체 깊이는 `tank_depth`, `fluid_depth`, `fluid_origin_z`로 지정한다.
+`dem_nx/y/z`, `dem_origin_x/y/z`, `dem_vel_x/y/z`, `dem_omega_x/y/z`로 3차원
+배치와 운동을 설정한다. y축 깊이는 `tank_depth`, `fluid_depth`, `fluid_origin_y`,
+z축 높이는 `tank_height`, `fluid_height`, `fluid_origin_z`로 지정한다.
 `validate_sph()`와 `validate_dem()`은 영역·격자·물성·배치와 시간 간격을 검사한다.
 SPH 초기 음향 제한은 `dt <= 0.25*h/c0`, DEM 접촉 제한은
 `dt <= dem_dt_safety*min(sqrt((m/2)/K), (m/2)/eta)`이다. 시간 간격은 자동 조절하지 않는다.
@@ -60,7 +61,7 @@ SPH 초기 음향 제한은 `dt <= 0.25*h/c0`, DEM 접촉 제한은
 전달 변수 없이 `P_sph`의 필드를 직접 읽고 쓴다. `P_sph.acc_dem`은 DEM 항력의
 기여분이고 `P_sph.acc`는 적분에 사용하는 총가속도다.
 
-SPH와 DEM 경계는 바닥·좌·우·앞·뒤 다섯 면에서 모서리와 꼭짓점을 중복 생성하지 않는다.
+SPH와 DEM 경계는 z=0 바닥, x 양쪽, y 앞·뒤의 다섯 면에서 모서리와 꼭짓점을 중복 생성하지 않는다.
 DEM 경계 중심은 수조 표면에서 경계 반지름만큼 바깥에 있다. 고정 구의 곡면으로
 경계를 표현하므로 접촉 표면은 거칠다. 경계 구의 간격은 이동 구가 격자 사이를
 통과하지 못하도록 검사한다. 경계 구에는 힘·토크·가속도를 저장하거나 적분하지 않는다.
@@ -113,7 +114,7 @@ CUDA 메모리 풀의 예약량은 재사용을 위해 최고점에 머물 수 �
 7. `Kernel_step_sph`와 `Kernel_step_dem`: 같은 시간층에서 계산한 힘으로 xyz 적분.
 
 Shepard는 첫 step에서 초기화하고 이후 `shepard_step` 주기로 갱신한다.
-중력은 각 상에서 한 번만 더한다. 고정 경계는 적분하지 않는다.
+중력 벡터 `(0, 0, -g)`는 각 상에서 한 번만 더한다. 고정 경계는 적분하지 않는다.
 
 ## 수식과 참조
 
@@ -127,8 +128,9 @@ dW/dr  = 21/(16*pi*h⁴) * (-5q*u³)
 
 support 밖에서는 0이며 구 체적에 대한 적분은 1이다.
 [PySPH의 Wendland C2 구현](https://pysph.readthedocs.io/en/main/_modules/pysph/base/kernels.html#WendlandQuintic)과 계수를 대조했다.
-`KERNEL_rho.py`, `KERNEL_pres.py`, `KERNEL_force.py`, `KERNEL_step.py`의 소스는
-3D 전환 전과 같다. 기존 벡터식이 3D 커널·체적 질량·이웃을 사용한다.
+`KERNEL_rho.py`, `KERNEL_pres.py`, `KERNEL_step.py`의 소스는 3D 전환 전과 같다.
+`KERNEL_force.py`는 기존 벡터식을 유지하되 중력 성분만 `(0, 0, -g)`로 맞췄다.
+이 커널들은 3D 커널·체적 질량·이웃을 사용한다.
 `kernel/__init__.py`는 원래 파일명과 `KERNEL_KNL` import의 대소문자를 연결한다.
 
 DEM 접촉과 SPH–DEM 연계식은 [DEM_HeatTransferModelV2](https://github.com/hojin9908/DEM_HeatTransferModelV2/tree/18b2e46cb66590531f565903acda3d5d18d899c5)를 따른다.
@@ -161,12 +163,12 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
   이동 전용 가속도·힘·토크 출력에는 0 placeholder를 사용한다.
 - 각 PVD는 동일한 시간의 `sph_*.vtp`, `dem_*.vtp`를 가리킨다.
 - `animation/3d/dam_break_sph_dem_3d.gif`: 모든 SPH 점과 실제 반지름의 DEM 구를
-  3D로 표시한다. 물리 y축을 수직으로 그리며 각 축의 길이 비율을 유지한다.
+  3D로 표시한다. 물리 z축을 수직으로 그리며 각 축의 길이 비율을 유지한다.
   SPH 색상은 압력, DEM은 주황색이다. 고정 경계는 수조 외곽선으로 표시한다.
   유체 내부의 구를 확인할 수 있도록 DEM 표면을 반투명 SPH 점 위에 겹쳐 표시한다.
 - 초기 상태와 마지막 상태는 출력 주기에 맞지 않아도 저장한다 (`output_step > 0`).
 
-테스트 22개가 통과했다. 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
+테스트 23개가 통과했다. −z 중력 방향, 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
 앞뒤 벽의 이동 DEM 반발력, 3축 회전·압력구배·항력, 공극률 가중 반작용, 접촉 이력 해제,
 빈 old/new CSR 할당·정확한 E 크기·0→증가→비영(非零) 감소→0→재접촉·행의 접촉 교체,
 경계 CSR 증가와 해제, HashGrid rebuild 뒤 stable-ID 이력 승계, SPH 전용 경로와
@@ -174,8 +176,8 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
 물리 커널은 CPU와 CUDA에서 검사했다.
 실험 자료와의 정량 검증, 격자·시간 간격 수렴성 검증은 수행하지 않았다.
 
-아래 장기 실행 결과는 old/new CSR 전환 전 dense 물리 baseline이다. 새 CSR 경로에서는
-22개 회귀 테스트를 통과했으며 9,000 step 장기 재검증은 아직 수행하지 않았다.
+아래 장기 실행 결과는 old/new CSR 전환과 z-up 좌표 전환 전의 dense/y-up 물리 baseline이다.
+현재 CSR·z-up 경로에서는 23개 회귀 테스트를 통과했으며 9,000 step 장기 재검증은 아직 수행하지 않았다.
 기본 3D 조건으로 9,000 step(0.9 s)을 실행해 SPH·DEM VTP 각각 101개와
 3D GIF 101프레임을 생성했다. 모든 저장 물리량이 유한하고 SPH·DEM 경계의 위치와
 속도가 초기값과 같았다. 저장 프레임에서 최대 DEM–DEM 겹침은 0.003999 m,

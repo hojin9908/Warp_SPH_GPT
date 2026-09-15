@@ -67,5 +67,5 @@ def Kernel_force_sph(P_sph: SPHptl,
                 visc = 2.0 * mu * wp.dot(ribj, dwibj) \
                     / (rhoi * rhobj * (tdist + 0.01 * h * h))
                 acci = acci + P_bnd.m[bj] * visc * (vi - P_bnd.vel[bj])
-    # Gravity
-    P_sph.acc[i] = acci + wp.vec3(0.0, -g, 0.0)
+    # Gravity acts along the physical vertical axis, negative z.
+    P_sph.acc[i] = acci + wp.vec3(0.0, 0.0, -g)

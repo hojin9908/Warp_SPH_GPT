@@ -6,7 +6,7 @@ from input.Config import Solv
 
 class DamPtlGeneration:
     """
-    Generate particle structures for a 3D dam break (y vertical, z depth).
+    Generate particle structures for a 3D dam break (z vertical, y depth).
     """
 
     def __init__(self, solv: Solv) -> None:
@@ -20,8 +20,8 @@ class DamPtlGeneration:
         solv = self.solv
         dx = self.dx
         n_x = int(round(solv.fluid_width / dx))
-        n_y = int(round(solv.fluid_height / dx))
-        n_z = int(round(solv.fluid_depth / dx))
+        n_y = int(round(solv.fluid_depth / dx))
+        n_z = int(round(solv.fluid_height / dx))
         grid_x, grid_y, grid_z = np.meshgrid(
             solv.fluid_origin_x + np.arange(n_x) * dx,
             solv.fluid_origin_y + np.arange(n_y) * dx,
@@ -45,14 +45,14 @@ class DamPtlGeneration:
         bnd = self.bnd_layer
 
         n_x_tank = int(round(solv.tank_width / dx))
-        n_y_tank = int(round(solv.tank_height / dx))
-        n_z_tank = int(round(solv.tank_depth / dx))
+        n_y_tank = int(round(solv.tank_depth / dx))
+        n_z_tank = int(round(solv.tank_height / dx))
         # A single shell mask prevents duplicated corner masses in the density sum.
         gx, gy, gz = np.meshgrid(np.arange(-bnd, n_x_tank + bnd),
                                 np.arange(-bnd, n_y_tank + bnd),
                                 np.arange(-bnd, n_z_tank + bnd), indexing="ij")
-        wall = ((gy < 0) | (gx < 0) | (gx >= n_x_tank)
-                | (gz < 0) | (gz >= n_z_tank))
+        wall = ((gz < 0) | (gx < 0) | (gx >= n_x_tank)
+                | (gy < 0) | (gy >= n_y_tank))
         return np.stack([gx[wall], gy[wall], gz[wall]], axis=1) * dx
 
     def build(self) -> tuple[SPHptl, BNDptl]:

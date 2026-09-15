@@ -89,7 +89,7 @@ def Kernel_force_dem(P_dem: DEMptl,
     P_dem: moving DEM particles plus old/read and new/write contact CSR fields
     grid_dem: HashGrid handle built from current DEM positions
     radius_max: largest moving DEM neighbour radius [m]
-    g: gravity magnitude in the negative y direction [m/s^2]
+    g: gravity magnitude in the negative z direction [m/s^2]
     dt: interval used to integrate tangential displacement [s]
     # Output
     P_dem.force[a], P_dem.torque[a]
@@ -97,7 +97,7 @@ def Kernel_force_dem(P_dem: DEMptl,
     """
     a = wp.tid()
     ra = P_dem.pos[a]
-    force = wp.vec3(0.0, -P_dem.m[a] * g, 0.0)
+    force = wp.vec3(0.0, 0.0, -P_dem.m[a] * g)
     torque = wp.vec3(0.0, 0.0, 0.0)
     # First writable edge of particle a in this step's scanned new CSR.
     output_index = P_dem.contact_dem_offset_new[a]

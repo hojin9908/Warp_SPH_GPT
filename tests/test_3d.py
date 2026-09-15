@@ -7,6 +7,7 @@ from input.Config import Solv
 from input.gen_ptl import DamPtlGeneration
 from input.gen_dem import DEMPtlGeneration
 from kernel.KERNEL_KNL import Kernel_w_Wendland, Kernel_dw_Wendland
+from kernel.KERNEL_force import Kernel_force_sph
 from kernel.KERNEL_DEM_step import Kernel_step_dem
 from kernel.KERNEL_SPHDEM_interaction import Kernel_prep_sphdem, Kernel_interaction_dem, Kernel_interaction_sph
 from output.gif_gen import collect_frame, sphere_faces
@@ -63,6 +64,8 @@ class ThreeDimensionalTests(unittest.TestCase):
         self.assertEqual(len(dem), 20)
         self.assertEqual(np.linalg.matrix_rank(fluid - fluid.mean(axis=0)), 3)
         self.assertEqual(np.linalg.matrix_rank(dem - dem.mean(axis=0)), 3)
+        self.assertAlmostEqual(np.ptp(fluid[:, 1]) + s.dx, s.fluid_depth)
+        self.assertAlmostEqual(np.ptp(fluid[:, 2]) + s.dx, s.fluid_height)
         self.assertAlmostEqual(s.dem_mass, s.dem_rho*4*np.pi*s.dem_radius**3/3)
         self.assertAlmostEqual(s.dem_inertia, 2*s.dem_mass*s.dem_radius**2/5)
         for wall in (sph_wall, dem_wall):
@@ -70,15 +73,33 @@ class ThreeDimensionalTests(unittest.TestCase):
             for axis in (0, 1, 2):
                 self.assertLess(wall[:, axis].min(), 0.0)
             self.assertGreaterEqual(wall[:, 0].max(), s.tank_width)
-            self.assertGreaterEqual(wall[:, 2].max(), s.tank_depth)
+            self.assertGreaterEqual(wall[:, 1].max(), s.tank_depth)
+            self.assertGreaterEqual(wall[:, 2].max(), s.tank_height)
             interior = ((wall[:, 0] > 0) & (wall[:, 0] < s.tank_width)
-                        & (wall[:, 2] > 0) & (wall[:, 2] < s.tank_depth))
-            self.assertTrue(np.all(wall[interior, 1] < 0.0))
+                        & (wall[:, 1] > 0) & (wall[:, 1] < s.tank_depth))
+            self.assertTrue(np.all(wall[interior, 2] < 0.0))
         # Reject impossible depth placement and a time step unsafe for the sphere mass.
         with self.assertRaises(ValueError):
-            DEMPtlGeneration(Solv(dem_origin_z=0.39)).dem_particle()
+            DEMPtlGeneration(Solv(dem_origin_y=0.39)).dem_particle()
         with self.assertRaises(ValueError):
             Solv(dt=1.0e-3).validate_dem()
+
+    def test_gravity_points_along_negative_z(self):
+        """SPH acceleration and DEM body force must use only the negative z axis."""
+        for device in self.devices:
+            with self.subTest(device=device), wp.ScopedDevice(device):
+                s, P, B, D, DB, grids = scene(device)
+                wp.launch(Kernel_force_sph, dim=P.pos.shape[0],
+                          inputs=[P, B, grids[0].id, grids[1].id,
+                                  s.support, s.h, s.mu, s.g])
+                expected_acc = np.zeros_like(P.acc.numpy())
+                expected_acc[:, 2] = -s.g
+                np.testing.assert_allclose(P.acc.numpy(), expected_acc, rtol=1e-7)
+
+                run_force_dem(D, grids[2].id, s.dem_radius, s.g, s.dt)
+                expected_force = np.zeros_like(D.force.numpy())
+                expected_force[:, 2] = -s.dem_mass * s.g
+                np.testing.assert_allclose(D.force.numpy(), expected_force, rtol=1e-7)
 
     def test_oblique_contact_and_three_axis_translation(self):
         """A diagonal normal must generate all three force components and conserve pair force."""
@@ -86,7 +107,7 @@ class ThreeDimensionalTests(unittest.TestCase):
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=2)
                 normal = np.array([1.0, 2.0, 3.0]) / np.sqrt(14.0)
-                positions = np.array([[0.2, 0.6, 0.12], [0.2, 0.6, 0.12] + 0.049*normal], np.float32)
+                positions = np.array([[0.2, 0.12, 0.6], [0.2, 0.12, 0.6] + 0.049*normal], np.float32)
                 D.pos.assign(positions)
                 D.vel.assign(np.array([normal, -normal], np.float32))
                 grids[2].build(D.pos, s.dem_support)
@@ -100,36 +121,36 @@ class ThreeDimensionalTests(unittest.TestCase):
                 self.assertTrue(np.all(D.pos.numpy()[0] != positions[0]))
 
     def test_transverse_slip_and_three_axis_spin(self):
-        """A z-normal contact with y-slip produces x torque; initial spin accepts all axes."""
+        """A y-normal contact with z-slip produces x torque; initial spin accepts all axes."""
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=2,
                                               dem_omega_x=1.0, dem_omega_y=2.0, dem_omega_z=3.0)
                 np.testing.assert_allclose(D.omega.numpy(), [[1, 2, 3], [1, 2, 3]])
                 D.omega.zero_()
-                D.pos.assign(np.array([[0.2, 0.6, 0.10], [0.2, 0.6, 0.149]], np.float32))
-                D.vel.assign(np.array([[0, 0, 0], [0, 0.01, 0]], np.float32))
+                D.pos.assign(np.array([[0.2, 0.10, 0.6], [0.2, 0.149, 0.6]], np.float32))
+                D.vel.assign(np.array([[0, 0, 0], [0, 0, 0.01]], np.float32))
                 grids[2].build(D.pos, s.dem_support)
                 run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
                 tangential = s.dem_K*0.01*s.dt + s.dem_eta*0.01
-                np.testing.assert_allclose(D.torque.numpy()[:, 0], -0.0245*tangential, rtol=1e-5)
+                np.testing.assert_allclose(D.torque.numpy()[:, 0], 0.0245*tangential, rtol=1e-5)
                 wp.launch(Kernel_step_dem, dim=2, inputs=[D, s.dt])
-                np.testing.assert_allclose(D.omega.numpy()[:, 0], -0.0245*tangential/s.dem_inertia*s.dt, rtol=1e-5)
+                np.testing.assert_allclose(D.omega.numpy()[:, 0], 0.0245*tangential/s.dem_inertia*s.dt, rtol=1e-5)
 
     def test_front_and_back_wall_contacts(self):
-        """Both z walls repel approaching spheres without storing wall loads."""
+        """Both y-depth walls repel approaching spheres without storing wall loads."""
         for device in self.devices:
             for back in (False, True):
                 with self.subTest(device=device, back=back), wp.ScopedDevice(device):
                     s, P, B, D, DB, grids = scene(device, dem_nx=1)
                     sign = -1.0 if back else 1.0
-                    z = s.tank_depth - 0.02 if back else 0.02
-                    D.pos.fill_(wp.vec3(0.4, 0.4, z))
-                    D.vel.fill_(wp.vec3(0.1, 0.0, -sign*0.2))
+                    y = s.tank_depth - 0.02 if back else 0.02
+                    D.pos.fill_(wp.vec3(0.4, y, 0.4))
+                    D.vel.fill_(wp.vec3(0.1, -sign*0.2, 0.0))
                     grids[2].build(D.pos, s.dem_support)
                     wall_pos = DB.pos.numpy().copy()
                     run_bc_dem(D, DB, grids[3].id, s.dem_bnd_radius, s.dt)
-                    self.assertGreater(sign*D.force.numpy()[0, 2], 0.0)
+                    self.assertGreater(sign*D.force.numpy()[0, 1], 0.0)
                     self.assertGreater(np.linalg.norm(D.torque.numpy()[0]), 0.0)
                     np.testing.assert_array_equal(DB.pos.numpy(), wall_pos)
                     np.testing.assert_array_equal(DB.vel.numpy(), 0.0)
@@ -167,13 +188,13 @@ class ThreeDimensionalTests(unittest.TestCase):
                 np.testing.assert_allclose(reaction, -drag, rtol=3e-6, atol=1e-6)
 
     def test_output_retains_depth_and_physical_spheres(self):
-        """Verify GIF input keeps z, sphere vertices have unit radius, and VTK fields use 3D mass."""
+        """Verify GIF input keeps y-depth, physical spheres, and 3D VTK mass."""
         with wp.ScopedDevice("cpu"):
-            s, P, B, D, DB, grids = scene("cpu", dem_nz=2, dem_origin_z=0.1)
+            s, P, B, D, DB, grids = scene("cpu", dem_ny=2, dem_origin_y=0.1)
             frame = collect_frame(P, B, 0.0, D, DB)
             for name in ("pos_sph", "pos_bnd", "pos_dem", "pos_dem_bnd"):
                 self.assertEqual(frame[name].shape[1], 3)
-                self.assertGreater(np.ptp(frame[name][:, 2]), 0.0)
+                self.assertGreater(np.ptp(frame[name][:, 1]), 0.0)
             vertices = sphere_faces().reshape(-1, 3)
             np.testing.assert_allclose(np.linalg.norm(vertices, axis=1), 1.0, atol=1e-14)
             np.testing.assert_allclose(np.ptp(vertices, axis=0), [2, 2, 2], atol=1e-14)
