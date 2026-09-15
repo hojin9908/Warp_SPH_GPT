@@ -8,8 +8,7 @@ from kernel.KERNEL_pres import Kernel_pres_sph, Kernel_pres_bnd
 from kernel.KERNEL_force import Kernel_force_sph
 from kernel.KERNEL_step import Kernel_step_sph
 from kernel.KERNEL_DEM_force import Kernel_count_dem_contacts, Kernel_force_dem
-from kernel.KERNEL_DEM_BC import (
-    Kernel_reset_dem_bnd, Kernel_count_bnd_contacts, Kernel_bc_dem, Kernel_acc_dem_bnd)
+from kernel.KERNEL_DEM_BC import Kernel_count_bnd_contacts, Kernel_bc_dem
 from kernel.KERNEL_DEM_step import Kernel_step_dem
 from kernel.KERNEL_SPHDEM_interaction import (
     Kernel_prep_sphdem, Kernel_interaction_dem, Kernel_interaction_sph)
@@ -125,11 +124,10 @@ def SPHDEM_OneStep(solv: Solv,
     # Output
     Updated SPH fields (including porosity, pgf, acc_dem) and DEM loads / histories.
     Moving SPH / DEM positions and velocities, plus DEM angular velocities.
-    Fixed DEM boundary forces, torques and diagnostic accelerations; no wall motion.
+    Fixed DEM boundary geometry and zero wall velocity/spin remain unchanged.
     """
     n_sph = P_sph.pos.shape[0]
     n_dem = P_dem.pos.shape[0]
-    n_dem_bnd = P_dem_bnd.pos.shape[0]
     # 1) SPH density, pressure and forces; leave motion at the current time level.
     SPH_OneStep(solv, P_sph, P_bnd, grid_sph, grid_bnd, step, integrate=False)
 
@@ -168,9 +166,8 @@ def SPHDEM_OneStep(solv: Solv,
     P_dem.tang_dem_old, P_dem.tang_dem_new = (
         P_dem.tang_dem_new, P_dem.tang_dem_old)
 
-    # 3) Reset fixed loads, then count and scan the new boundary-contact CSR.
-    wp.launch(Kernel_reset_dem_bnd, dim=n_dem_bnd,
-              inputs=[P_dem_bnd, grid_dem_bnd.id, solv.dem_bnd_radius, solv.g])
+    # 3) Count and scan the new moving-DEM-to-fixed-boundary contact CSR.
+    # The wall is kinematic: only the force/torque on moving DEM is evaluated.
     P_dem.contact_bnd_offset_new.zero_()
     wp.launch(Kernel_count_bnd_contacts, dim=n_dem,
               inputs=[P_dem, P_dem_bnd, grid_dem_bnd.id,
@@ -200,8 +197,6 @@ def SPHDEM_OneStep(solv: Solv,
         P_dem.contact_bnd_id_new, P_dem.contact_bnd_id_old)
     P_dem.tang_bnd_old, P_dem.tang_bnd_new = (
         P_dem.tang_bnd_new, P_dem.tang_bnd_old)
-
-    wp.launch(Kernel_acc_dem_bnd, dim=n_dem_bnd, inputs=[P_dem_bnd])
 
     # 4) Fluid fraction and pressure gradient on the SPH particle positions.
     wp.launch(Kernel_prep_sphdem, dim=n_sph,

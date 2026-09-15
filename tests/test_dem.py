@@ -13,8 +13,7 @@ from input.Config import Solv
 from input.gen_ptl import DamPtlGeneration
 from input.gen_dem import DEMPtlGeneration
 from kernel.KERNEL_DEM_force import Kernel_count_dem_contacts, Kernel_force_dem
-from kernel.KERNEL_DEM_BC import (
-    Kernel_reset_dem_bnd, Kernel_count_bnd_contacts, Kernel_bc_dem, Kernel_acc_dem_bnd)
+from kernel.KERNEL_DEM_BC import Kernel_count_bnd_contacts, Kernel_bc_dem
 from kernel.KERNEL_DEM_step import Kernel_step_dem
 from kernel.KERNEL_SPHDEM_interaction import (
     DEM_drag_beta, Kernel_prep_sphdem, Kernel_interaction_dem, Kernel_interaction_sph)
@@ -443,8 +442,8 @@ class DEMTests(unittest.TestCase):
                 run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
                 self.assertAlmostEqual(float(D.force.numpy()[0, 1]), s.dem_mu * s.dem_K * 0.001, delta=0.01)
 
-    def test_fixed_boundary_reaction_and_motion(self):
-        """Check equal/opposite wall contact, recorded acceleration and unchanged wall motion."""
+    def test_fixed_boundary_contact_and_motion(self):
+        """Check wall contact/history while the kinematic wall stores no loads."""
         for device in self.devices:
             with self.subTest(device=device), wp.ScopedDevice(device):
                 s, P, B, D, DB, grids = scene(device, dem_nx=1, dem_ny=1)
@@ -455,10 +454,6 @@ class DEMTests(unittest.TestCase):
                 D.vel.fill_(contact_vel)
                 grids[2].build(D.pos, s.dem_support)
                 run_force_dem(D, grids[2].id, s.dem_radius, 0.0, s.dt)
-                wp.launch(Kernel_reset_dem_bnd, dim=DB.pos.shape[0],
-                          inputs=[DB, grids[3].id, s.dem_bnd_radius, 0.0])
-                # Subtract fixed-fixed preload to isolate the moving sphere's wall reaction.
-                fixed_force = DB.force.numpy().copy()
                 fixed_pos = DB.pos.numpy().copy()
                 bnd_count = run_bc_dem(
                     D, DB, grids[3].id, s.dem_bnd_radius, s.dt)
@@ -470,16 +465,14 @@ class DEMTests(unittest.TestCase):
                 first_neighbour = int(bnd_ids[0])
                 first_history = contact_history(D, "bnd", 0, first_neighbour).copy()
                 self.assertGreater(np.linalg.norm(first_history), 0)
-                wp.launch(Kernel_acc_dem_bnd, dim=DB.pos.shape[0], inputs=[DB])
                 self.assertGreater(D.force.numpy()[0, 1], 0)
-                np.testing.assert_allclose((DB.force.numpy() - fixed_force).sum(axis=0),
-                                           -D.force.numpy()[0], atol=1e-3)
-                np.testing.assert_allclose(DB.acc.numpy(), DB.force.numpy() / s.dem_bnd_mass, rtol=1e-6)
+                self.assertGreater(np.linalg.norm(D.torque.numpy()[0]), 0)
                 wp.launch(Kernel_step_dem, dim=1, inputs=[D, s.dt])
                 np.testing.assert_array_equal(DB.pos.numpy(), fixed_pos)
                 np.testing.assert_array_equal(DB.vel.numpy(), 0)
                 np.testing.assert_array_equal(DB.omega.numpy(), 0)
-                self.assertGreater(np.linalg.norm(DB.torque.numpy()), 0)
+                for field in ("acc", "force", "torque"):
+                    self.assertFalse(hasattr(DB, field))
                 # Clear wall history after leaving contact and the wall query.
                 D.pos.fill_(wp.vec3(0.4, 0.8, 0.16))
                 grids[2].build(D.pos, s.dem_support)
@@ -613,7 +606,14 @@ class DEMTests(unittest.TestCase):
                 self.assertAlmostEqual(float(datasets[-1].get("timestep")), 3*s.dt)
                 data = ET.parse(os.path.join(tmp, datasets[-1].get("file")))
                 values = data.find(".//PointData/DataArray[@Name='type']")
-                self.assertEqual(set(np.fromstring(values.text, sep=" ").astype(int)), types)
+                particle_types = np.fromstring(values.text, sep=" ").astype(int)
+                self.assertEqual(set(particle_types), types)
+                if name == "dem":
+                    fixed = particle_types == 3
+                    for field in ("acc", "force", "torque"):
+                        values = data.find(f".//PointData/DataArray[@Name='{field}']")
+                        vectors = np.fromstring(values.text, sep=" ").reshape(-1, 3)
+                        np.testing.assert_array_equal(vectors[fixed], 0.0)
             with Image.open(os.path.join(tmp, "dam_break_sph_dem_3d.gif")) as gif:
                 self.assertEqual(gif.n_frames, 3)
 

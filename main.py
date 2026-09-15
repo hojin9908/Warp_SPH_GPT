@@ -1,7 +1,6 @@
 import argparse
 from typing import Any
 
-import numpy as np
 import warp as wp
 
 from input.Config import Solv
@@ -9,8 +8,7 @@ from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
 from input.gen_ptl import DamPtlGeneration
 from input.gen_dem import DEMPtlGeneration
 from source.Simulation import SPH_OneStep, SPHDEM_OneStep
-from output.output import save_vtk, save_dem_vtk, save_pvd
-from output.gif_gen import collect_frame, save_gif
+from output.frame_writer import FrameWriter
 
 
 def parsing() -> dict[str, Any]:
@@ -73,36 +71,13 @@ def run_forward(solv: Solv,
         solv.validate_dem()
         grid_dem_bnd.build(points=P_dem_bnd.pos, radius=2.0 * solv.dem_bnd_radius)
 
-    # [(file name, t), ...] of every frame written, collected for the .pvd
-    frames: list[tuple[str, float]] = []
-    dem_frames: list[tuple[str, float]] = []
-    # host side copies of the same frames, kept only when a gif is wanted
-    gif_frames: list[dict] = []
-    def write_frame(step: int) -> None:
-        """
-        Write one synchronized SPH / DEM state and retain optional GIF data.
-
-        step: number of completed integration steps (0 denotes the initial state)
-
-        # Output
-        Append VTP references to frames / dem_frames and host copies to gif_frames.
-        Raise FloatingPointError if a checked particle field contains NaN or infinity.
-        """
-        t = step * solv.dt
-        # Validate the principal state fields before recording this output frame.
-        for P in ((P_sph, P_bnd, P_dem, P_dem_bnd) if coupled else (P_sph, P_bnd)):
-            for key in ("pos", "vel", "acc", "rho"):
-                if not np.isfinite(getattr(P, key).numpy()).all():
-                    raise FloatingPointError(f"non-finite {key} at step {step}")
-        # Each phase gets its own dataset, with the same step number and physical time.
-        frames.append(save_vtk(P_sph, P_bnd, step, t, out_dir=solv.output_dir, name="sph"))
-        if coupled:
-            dem_frames.append(save_dem_vtk(P_dem, P_dem_bnd, step, t, out_dir=solv.output_dir))
-        if solv.gif_save:
-            gif_frames.append(collect_frame(P_sph, P_bnd, t, P_dem, P_dem_bnd))
+    # The output module owns frame validation, VTK references and optional GIF data.
+    writer = FrameWriter(solv, P_sph, P_bnd,
+                         P_dem if coupled else None,
+                         P_dem_bnd if coupled else None)
 
     if solv.output_step > 0:
-        write_frame(0)
+        writer.write_frame(0)
 
     # Moving particles require rebuilt neighbour grids before every force evaluation.
     for step in range(solv.n_steps):
@@ -116,24 +91,10 @@ def run_forward(solv: Solv,
 
         # the state after this step belongs to step+1
         if solv.output_step > 0 and ((step + 1) % solv.output_step == 0 or step + 1 == solv.n_steps):
-            write_frame(step + 1)
+            writer.write_frame(step + 1)
             print(f"[output] step {step+1:>6d} / {solv.n_steps}\t t={(step+1)*solv.dt:.4f} s")
 
-    # Render the synchronized host frames once after the forward calculation.
-    if gif_frames:
-        gif = save_gif(gif_frames, solv, ani_dir=solv.animation_dir,
-                       name="dam_break_sph_dem_3d" if coupled else "dam_break_3d")
-        print(f"\n[output] {len(gif_frames)} frames -> {gif}")
-
-    # Independent ParaView collections retain the time stamps of each phase.
-    if frames:
-        path = save_pvd(frames, out_dir=solv.output_dir, name="sph")
-        print(f"\n[output] {len(frames)} frames -> {path}\n")
-    if dem_frames:
-        path = save_pvd(dem_frames, out_dir=solv.output_dir, name="dem")
-        print(f"[output] {len(dem_frames)} frames -> {path}\n")
-    
-
+    writer.finalize()
 
 
 def main() -> None:

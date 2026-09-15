@@ -87,15 +87,12 @@ class DEMBNDptl:
     - Structure of DEM boundary (fixed sphere) particles.
     - SoA structure. Read with "P_dem_bnd.pos[dbi]".
     - Index convention: dbi / dbj are the DEM boundary subject / neighbour.
-    - Same 3D contact law and SI units as DEMptl.
-    - Force and torque are retained; position, velocity and spin are not integrated.
+    - Supplies fixed geometry and zero wall velocity/spin to the contact law.
+    - Boundary force, torque and acceleration are neither stored nor integrated.
     """
     pos: wp.array(dtype=wp.vec3)         # [N_dem_bnd,3]         Fixed position                         [m]
     vel: wp.array(dtype=wp.vec3)         # [N_dem_bnd,3]         Wall velocity (zero)                   [m/s]
-    acc: wp.array(dtype=wp.vec3)         # [N_dem_bnd,3]         Force / mass, diagnostic only          [m/s^2]
-    force: wp.array(dtype=wp.vec3)       # [N_dem_bnd,3]         Contact + gravity force                [N]
     omega: wp.array(dtype=wp.vec3)       # [N_dem_bnd,3]         Angular velocity (zero)                [rad/s]
-    torque: wp.array(dtype=wp.vec3)      # [N_dem_bnd,3]         Contact torque                         [N m]
     radius: wp.array(dtype=float)        # [N_dem_bnd]           Boundary sphere radius                 [m]
     rho: wp.array(dtype=float)           # [N_dem_bnd]           Material density                       [kg/m^3]
     m: wp.array(dtype=float)             # [N_dem_bnd]           Mass                                   [kg]

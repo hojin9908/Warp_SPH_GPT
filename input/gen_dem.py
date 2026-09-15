@@ -71,8 +71,8 @@ class DEMPtlGeneration:
         Allocate moving DEM and fixed DEM boundary SoA arrays.
 
         return: dem (DEMptl), bnd (DEMBNDptl)
-        All arrays are allocated on solv.device. Force, torque and history start
-        at zero; only moving DEM particles receive the configured initial motion.
+        All arrays are allocated on solv.device. Dynamic fields and contact
+        history belong to moving DEM particles; the fixed wall stores no loads.
         """
         solv = self.solv
         solv.validate_dem()
@@ -82,7 +82,7 @@ class DEMPtlGeneration:
         n_dem, n_bnd = len(dem_pos), len(bnd_pos)
         dem = DEMptl()
         bnd = DEMBNDptl()
-        # Common mechanical fields; moving and fixed spheres share the contact law.
+        # Shared geometry/material metadata; only moving spheres own dynamic loads.
         for P, pos, radius, rho, mass, volume, inertia in (
                 (dem, dem_pos, solv.dem_radius, solv.dem_rho, solv.dem_mass,
                  solv.dem_volume, solv.dem_inertia),
@@ -90,12 +90,15 @@ class DEMPtlGeneration:
                  solv.dem_bnd_volume, solv.dem_bnd_inertia)):
             n = len(pos)
             P.pos = wp.array(pos, dtype=wp.vec3, device=dev)
-            for key in ("vel", "acc", "force", "omega", "torque"):
+            for key in ("vel", "omega"):
                 setattr(P, key, wp.zeros(n, dtype=wp.vec3, device=dev))
             for key, value in (("radius", radius), ("rho", rho), ("m", mass),
                                ("volume", volume), ("inertia", inertia),
                                ("K", solv.dem_K), ("eta", solv.dem_eta), ("mu", solv.dem_mu)):
                 setattr(P, key, wp.full(n, value, dtype=float, device=dev))
+        # Acceleration, force and torque are integrated only for moving spheres.
+        for key in ("acc", "force", "torque"):
+            setattr(dem, key, wp.zeros(n_dem, dtype=wp.vec3, device=dev))
         # Initial translation / spin uses all three axes; boundary motion stays zero.
         dem.vel.fill_(wp.vec3(solv.dem_vel_x, solv.dem_vel_y, solv.dem_vel_z))
         dem.omega.fill_(wp.vec3(solv.dem_omega_x, solv.dem_omega_y, solv.dem_omega_z))

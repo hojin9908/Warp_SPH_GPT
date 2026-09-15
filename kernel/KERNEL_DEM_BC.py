@@ -8,29 +8,6 @@ wp.set_module_options({"enable_backward": False})
 
 
 @wp.kernel
-def Kernel_reset_dem_bnd(P_dem_bnd: DEMBNDptl,
-                         grid_dem_bnd: wp.uint64,
-                         radius_max: float,
-                         g: float) -> None:
-    """Reset fixed-boundary loads using fixed-fixed normal contacts and gravity."""
-    dbi = wp.tid()
-    rdbi = P_dem_bnd.pos[dbi]
-    force = wp.vec3(0.0, -P_dem_bnd.m[dbi] * g, 0.0)
-
-    for dbj in wp.hash_grid_query(
-            grid_dem_bnd, rdbi, P_dem_bnd.radius[dbi] + radius_max):
-        if dbi != dbj:
-            rdb = P_dem_bnd.pos[dbj] - rdbi
-            dist = wp.length(rdb)
-            overlap = P_dem_bnd.radius[dbi] + P_dem_bnd.radius[dbj] - dist
-            if dist > 1.0e-12 and overlap > 0.0:
-                force = force - P_dem_bnd.K[dbi] * overlap * rdb / dist
-
-    P_dem_bnd.force[dbi] = force
-    P_dem_bnd.torque[dbi] = wp.vec3(0.0, 0.0, 0.0)
-
-
-@wp.kernel
 def Kernel_count_bnd_contacts(P_dem: DEMptl,
                               P_dem_bnd: DEMBNDptl,
                               grid_dem_bnd: wp.uint64,
@@ -65,8 +42,9 @@ def Kernel_bc_dem(P_dem: DEMptl,
     radius_max: largest boundary sphere radius [m]
     dt: interval used to integrate tangential displacement [s]
     # Output
-    Wall force/torque is added to P_dem and atomically reacted on P_dem_bnd.
+    Wall force/torque is added only to the moving particle P_dem.
     P_dem.contact_bnd_id_new/tang_bnd_new contain every active pair.
+    The fixed boundary is kinematic and stores no force, torque or acceleration.
     """
     a = wp.tid()
     ra = P_dem.pos[a]
@@ -91,7 +69,7 @@ def Kernel_bc_dem(P_dem: DEMptl,
             normal = wp.vec3(0.0, -1.0, 0.0)
             if dist > 1.0e-12:
                 normal = radb / dist
-            fadb, displacement, torque_a, torque_dbj = DEM_contact(
+            fadb, displacement, torque_a = DEM_contact(
                 normal, overlap, P_dem.radius[a], P_dem_bnd.radius[dbj],
                 P_dem.vel[a], P_dem_bnd.vel[dbj],
                 P_dem.omega[a], P_dem_bnd.omega[dbj],
@@ -101,16 +79,6 @@ def Kernel_bc_dem(P_dem: DEMptl,
             P_dem.contact_bnd_id_new[output_index] = dbj
             P_dem.tang_bnd_new[output_index] = displacement
             output_index = output_index + 1
-            # Several moving particles can contact the same fixed sphere.
-            wp.atomic_add(P_dem_bnd.force, dbj, -fadb)
-            wp.atomic_add(P_dem_bnd.torque, dbj, torque_dbj)
 
     P_dem.force[a] = P_dem.force[a] + force
     P_dem.torque[a] = P_dem.torque[a] + torque
-
-
-@wp.kernel
-def Kernel_acc_dem_bnd(P_dem_bnd: DEMBNDptl) -> None:
-    """Store force/mass for diagnostics without integrating the fixed wall."""
-    dbi = wp.tid()
-    P_dem_bnd.acc[dbi] = P_dem_bnd.force[dbi] / P_dem_bnd.m[dbi]

@@ -43,8 +43,9 @@ def DEM_contact(normal: wp.vec3, overlap: float,
     dt: time interval used to update the contact history [s]
 
     # Output
-    return: force on a [N], updated displacement [m], torque on a [N m], torque on b [N m]
-    The caller stores the displacement and accumulates forces / torques.
+    return: force on a [N], updated displacement [m], torque on a [N m]
+    Each moving particle thread computes its own side of a contact, so the
+    neighbour force and torque do not need to be returned or stored.
 
     Reference: function_DEM_INTERACTION.cuh. Its componentwise sliding limiter
     and unprojected displacement history are retained deliberately.
@@ -69,8 +70,8 @@ def DEM_contact(normal: wp.vec3, overlap: float,
         fs = wp.vec3(wp.sign(fss[0]) * wp.abs(fsf[0]),
                      wp.sign(fss[1]) * wp.abs(fsf[1]),
                      wp.sign(fss[2]) * wp.abs(fsf[2]))
-    # Tangential forces give contact torques; the normal force is center-directed.
-    return fn + fs, displacement, wp.cross(rc_a, fs), wp.cross(rc_b, -fs)
+    # Tangential force gives the subject torque; the normal force is center-directed.
+    return fn + fs, displacement, wp.cross(rc_a, fs)
 
 
 @wp.kernel
@@ -120,7 +121,7 @@ def Kernel_force_dem(P_dem: DEMptl,
                     normal = -normal
                 if dist > 1.0e-12:
                     normal = rab / dist
-                fab, displacement, torque_a, torque_b = DEM_contact(
+                fab, displacement, torque_a = DEM_contact(
                     normal, overlap, P_dem.radius[a], P_dem.radius[b],
                     P_dem.vel[a], P_dem.vel[b], P_dem.omega[a], P_dem.omega[b],
                     tangent, P_dem.K[a], P_dem.eta[a], P_dem.mu[a], dt)

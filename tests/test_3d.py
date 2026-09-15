@@ -7,7 +7,6 @@ from input.Config import Solv
 from input.gen_ptl import DamPtlGeneration
 from input.gen_dem import DEMPtlGeneration
 from kernel.KERNEL_KNL import Kernel_w_Wendland, Kernel_dw_Wendland
-from kernel.KERNEL_DEM_BC import Kernel_reset_dem_bnd
 from kernel.KERNEL_DEM_step import Kernel_step_dem
 from kernel.KERNEL_SPHDEM_interaction import Kernel_prep_sphdem, Kernel_interaction_dem, Kernel_interaction_sph
 from output.gif_gen import collect_frame, sphere_faces
@@ -117,8 +116,8 @@ class ThreeDimensionalTests(unittest.TestCase):
                 wp.launch(Kernel_step_dem, dim=2, inputs=[D, s.dt])
                 np.testing.assert_allclose(D.omega.numpy()[:, 0], -0.0245*tangential/s.dem_inertia*s.dt, rtol=1e-5)
 
-    def test_front_and_back_wall_reactions(self):
-        """Both z walls resist approaching spheres and retain equal/opposite reaction loads."""
+    def test_front_and_back_wall_contacts(self):
+        """Both z walls repel approaching spheres without storing wall loads."""
         for device in self.devices:
             for back in (False, True):
                 with self.subTest(device=device, back=back), wp.ScopedDevice(device):
@@ -128,15 +127,14 @@ class ThreeDimensionalTests(unittest.TestCase):
                     D.pos.fill_(wp.vec3(0.4, 0.4, z))
                     D.vel.fill_(wp.vec3(0.1, 0.0, -sign*0.2))
                     grids[2].build(D.pos, s.dem_support)
-                    wp.launch(Kernel_reset_dem_bnd, dim=DB.pos.shape[0],
-                              inputs=[DB, grids[3].id, s.dem_bnd_radius, 0.0])
-                    fixed = DB.force.numpy().copy()
                     wall_pos = DB.pos.numpy().copy()
                     run_bc_dem(D, DB, grids[3].id, s.dem_bnd_radius, s.dt)
                     self.assertGreater(sign*D.force.numpy()[0, 2], 0.0)
-                    np.testing.assert_allclose((DB.force.numpy() - fixed).sum(axis=0), -D.force.numpy()[0], atol=1e-4)
+                    self.assertGreater(np.linalg.norm(D.torque.numpy()[0]), 0.0)
                     np.testing.assert_array_equal(DB.pos.numpy(), wall_pos)
                     np.testing.assert_array_equal(DB.vel.numpy(), 0.0)
+                    for field in ("acc", "force", "torque"):
+                        self.assertFalse(hasattr(DB, field))
 
     def test_pressure_gradient_and_drag_in_xyz(self):
         """Check an arbitrary 3D pressure gradient and drag / weighted reaction in all axes."""

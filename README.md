@@ -54,7 +54,7 @@ SPH 초기 음향 제한은 `dt <= 0.25*h/c0`, DEM 접촉 제한은
 | `SPHptl` | 자신 i, 이웃 j | SPH 물리량, `porosity`, `pgf=-grad(p)`, 항력 반작용 `acc_dem` |
 | `BNDptl` | 자신 bi, 이웃 bj | 고정 SPH dummy 경계 |
 | `DEMptl` | 자신 a, 이웃 b | 구의 위치·속도·힘·각속도·토크·물성·접촉 이력·유체 연계력 |
-| `DEMBNDptl` | 자신 dbi, 이웃 dbj | 같은 접촉법칙으로 힘과 토크를 받는 고정 구 |
+| `DEMBNDptl` | 이웃 dbj | 위치·반지름과 0인 속도·각속도를 제공하는 kinematic 고정 구 |
 
 `DamPtlGeneration.build()`가 SPH 연계 필드까지 초기화한다. 별도 연계 구조체나
 전달 변수 없이 `P_sph`의 필드를 직접 읽고 쓴다. `P_sph.acc_dem`은 DEM 항력의
@@ -63,8 +63,8 @@ SPH 초기 음향 제한은 `dt <= 0.25*h/c0`, DEM 접촉 제한은
 SPH와 DEM 경계는 바닥·좌·우·앞·뒤 다섯 면에서 모서리와 꼭짓점을 중복 생성하지 않는다.
 DEM 경계 중심은 수조 표면에서 경계 반지름만큼 바깥에 있다. 고정 구의 곡면으로
 경계를 표현하므로 접촉 표면은 거칠다. 경계 구의 간격은 이동 구가 격자 사이를
-통과하지 못하도록 검사한다. 경계는 접촉력·토크와 `force/m`을 기록하지만 적분하지 않는다.
-고정 지지대의 구속 반력은 별도 모델링하지 않는다.
+통과하지 못하도록 검사한다. 경계 구에는 힘·토크·가속도를 저장하거나 적분하지 않는다.
+벽 접촉력과 접촉 토크는 이동 DEM에만 누적하며 고정 지지대의 반력은 모델링하지 않는다.
 
 접촉 이력은 모든 입자쌍의 dense 행렬 대신 **활성 접촉만 담는 CSR**로 저장한다.
 DEM–DEM은 `contact_dem_offset_old/new[N+1]`, `contact_dem_id_old/new[E]`,
@@ -105,9 +105,8 @@ CUDA 메모리 풀의 예약량은 재사용을 위해 최고점에 머물 수 �
 1. 기존 SPH Shepard → 밀도 → Tait 압력 → 압력력·점성력·중력. 적분은 보류한다.
 2. DEM–DEM `offset_new` 초기화 → `Kernel_count_dem_contacts` → in-place scan →
    `Kernel_force_dem` → old/new swap: 접촉 이력과 힘·토크·중력을 계산.
-3. `Kernel_reset_dem_bnd` → boundary `offset_new` 초기화 → `Kernel_count_bnd_contacts` →
-   in-place scan → `Kernel_bc_dem` → old/new swap → `Kernel_acc_dem_bnd`: 벽 접촉 이력과
-   고정 구의 하중·반작용 계산.
+3. boundary `offset_new` 초기화 → `Kernel_count_bnd_contacts` → in-place scan →
+   `Kernel_bc_dem` → old/new swap: 벽 접촉 이력과 이동 DEM의 힘·토크를 계산.
 4. `Kernel_prep_sphdem`: SPH 위치의 공극률과 음의 압력구배를 `P_sph`에 저장.
 5. `Kernel_interaction_dem`: 유체장 보간으로 DEM 압력력·반암시적 항력 계산.
 6. `Kernel_interaction_sph`: 항력 반작용을 `P_sph.acc_dem`에 기록하고 `P_sph.acc`에 더함.
@@ -157,8 +156,9 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
 
 - `result/3d/sph.pvd`: SPH 유체(type=1), dummy 경계(type=0). xyz 위치, 속도, 밀도,
   압력, 질량, 공극률, 음의 압력구배, DEM 항력 반작용 가속도를 저장한다.
-- `result/3d/dem.pvd`: DEM 구(type=2), 고정 DEM 경계(type=3). xyz 물리량과
-  반지름, 체적, 질량, 관성, 토크, 각속도, 항력, 압력력, 공극률을 저장한다.
+- `result/3d/dem.pvd`: DEM 구(type=2), 고정 DEM 경계(type=3). 이동 DEM의 xyz
+  물리량과 반지름·물성·유체 연계량을 저장한다. 고정 경계는 기하·물성만 가지며
+  이동 전용 가속도·힘·토크 출력에는 0 placeholder를 사용한다.
 - 각 PVD는 동일한 시간의 `sph_*.vtp`, `dem_*.vtp`를 가리킨다.
 - `animation/3d/dam_break_sph_dem_3d.gif`: 모든 SPH 점과 실제 반지름의 DEM 구를
   3D로 표시한다. 물리 y축을 수직으로 그리며 각 축의 길이 비율을 유지한다.
@@ -167,7 +167,7 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
 - 초기 상태와 마지막 상태는 출력 주기에 맞지 않아도 저장한다 (`output_step > 0`).
 
 테스트 22개가 통과했다. 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
-앞뒤 벽 반작용, 3축 회전·압력구배·항력, 공극률 가중 반작용, 접촉 이력 해제,
+앞뒤 벽의 이동 DEM 반발력, 3축 회전·압력구배·항력, 공극률 가중 반작용, 접촉 이력 해제,
 빈 old/new CSR 할당·정확한 E 크기·0→증가→비영(非零) 감소→0→재접촉·행의 접촉 교체,
 경계 CSR 증가와 해제, HashGrid rebuild 뒤 stable-ID 이력 승계, SPH 전용 경로와
 출력·GIF를 확인한다.

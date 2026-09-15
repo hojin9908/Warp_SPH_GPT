@@ -88,9 +88,11 @@ def save_dem_vtk(P_dem: DEMptl,
                  out_dir: str = OUT_DIR,
                  name: str = "dem") -> tuple[str, float]:
     """
-    Write a separate DEM dataset, including fixed-wall reactions (type=3).
+    Write moving DEM and kinematic fixed-wall geometry in one dataset.
 
-    radius can be used as the ParaView Sphere Glyph scale; type=2 selects beads.
+    radius can be used as the ParaView Sphere Glyph scale; type=2 selects
+    moving beads and type=3 selects the fixed wall. Moving-only vector fields
+    use zero placeholders on fixed-wall points.
 
     P_dem: Particle structure of moving DEM spheres [N_dem]
     P_dem_bnd: Particle structure of fixed DEM spheres [N_dem_bnd]
@@ -103,9 +105,12 @@ def save_dem_vtk(P_dem: DEMptl,
     """
     n_dem, n_bnd = P_dem.pos.shape[0], P_dem_bnd.pos.shape[0]
     d = {}
-    # Stack moving / fixed DEM fields in the same order for every point-data array.
-    for key in ("pos", "vel", "acc", "force", "omega", "torque", "radius", "rho", "m", "volume", "inertia"):
+    # Stack fields that are physically stored by both moving and fixed spheres.
+    for key in ("pos", "vel", "omega", "radius", "rho", "m", "volume", "inertia"):
         d[key] = np.concatenate([getattr(P_dem, key).numpy(), getattr(P_dem_bnd, key).numpy()])
+    # The kinematic wall has no acceleration, force or torque state.
+    for key in ("acc", "force", "torque"):
+        d[key] = np.vstack([getattr(P_dem, key).numpy(), np.zeros((n_bnd, 3))])
     d["type"] = np.concatenate([np.full(n_dem, DEM_TYPE, dtype=np.int32),
                                  np.full(n_bnd, DEM_BND_TYPE, dtype=np.int32)])
     # Only moving spheres participate in fluid coupling; fixed-wall values are placeholders.
