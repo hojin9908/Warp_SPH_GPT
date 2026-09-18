@@ -1,6 +1,6 @@
 import warp as wp
 
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
 
 from kernel.KERNEL_rho import Kernel_shepard_sph, Kernel_density_sph, Kernel_density_bnd

@@ -3,7 +3,7 @@ from typing import Any
 
 import warp as wp
 
-from input.Config_EISPH import EISPHConfig
+from input.Config import Solv
 from input.gen_eisph import CavityPtlGeneration
 from output.gif_eisph import save_cavity_gif
 from source.EISPH import run_eisph
@@ -13,10 +13,10 @@ def parsing() -> dict[str, Any]:
     """
     Read command-line overrides for the EISPH configuration.
 
-    Omitted optional arguments use argparse.SUPPRESS so EISPHConfig keeps its
-    configured defaults.
+    Omitted optional arguments use argparse.SUPPRESS so Solv keeps its
+    configured EISPH defaults.
 
-    return: keyword arguments passed to EISPHConfig(**args)
+    return: keyword overrides passed to Solv(**args)
     """
     parser = argparse.ArgumentParser(description="Eulerian ISPH lid-driven cavity")
     parser.add_argument("--device", type=str, help="device to use",
@@ -43,7 +43,7 @@ def main() -> None:
     # Output
     animation/lid_driven_cavity.gif, or the path selected by --animation.
     """
-    solv = EISPHConfig(**parsing())
+    solv = Solv(**parsing())
     wp.init()
     # Scope controls particle allocation, HashGrid construction and kernel launches.
     with wp.ScopedDevice(solv.device):

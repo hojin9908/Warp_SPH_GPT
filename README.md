@@ -3,6 +3,20 @@
 3차원 WCSPH Dam Break에 DEM 구 20개를 낙하시킨다. x는 수조 길이, y는 깊이,
 z는 높이이고 중력은 −z 방향이다. SPH와 DEM은 xyz 병진 운동을, DEM은 xyz 회전도 계산한다.
 
+## 시뮬레이션 결과
+
+### 3D SPH–DEM Dam Break
+
+DEM 구 100개를 사용해 2.0 s 동안 계산한 3차원 Dam Break 결과다.
+
+![3D SPH-DEM Dam Break](animation/dam_break_sph_dem_100_2s.gif)
+
+### Eulerian ISPH Lid-Driven Cavity
+
+Re=100, 25×25 고정 유체점으로 계산한 Lid-Driven Cavity 결과다.
+
+![Eulerian ISPH Lid-Driven Cavity](animation/lid_driven_cavity.gif)
+
 ## 실행
 
 Python 3.10 이상과 `requirements.txt` 패키지가 필요하다. 검증 환경은
@@ -18,13 +32,16 @@ py -3.12 -m unittest discover -s tests -v
 ```
 
 `--dt`, `--animation-dir`도 지정할 수 있다. 물성·배치·시간 설정은
-`input/Config.py`의 `Solv` 인스턴스 `solv`에서 읽는다.
+`input/Config_SPH_DEM.py`의 `Solv` 인스턴스 `solv`에서 읽는다.
 기본 출력은 `result/3d`, `animation/3d`에 저장한다. 이전 2D 출력과 소스 백업
 `results/2d_baseline/source.zip`은 별도로 보존했다.
 
 ## Eulerian ISPH Lid-Driven Cavity
 
 고정된 x–z 셀 중심 입자에서 2차원 비압축성 Eulerian ISPH를 실행한다.
+`input/Config.py`와 `input/Config_SPH_DEM.py`는 동일한 `Solv` 필드와 메서드를
+사용하며, 각각 EISPH와 WCSPH–DEM 기본값을 저장한다. `h`와 `support`는 선택한
+`dx`, `h_factor`에서 자동으로 계산한다.
 
 ```powershell
 py -3.12 main_EISHP.py --device cuda:0
@@ -209,7 +226,7 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
   `x=[-0.06,2.06]`, `y=[-0.06,0.46]`, `z=[-0.06,2.06]` m를 사용한다.
 - 초기 상태와 마지막 상태는 출력 주기에 맞지 않아도 저장한다 (`output_step > 0`).
 
-테스트 34개가 통과했다. −z 중력 방향, 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
+테스트 35개가 통과했다. −z 중력 방향, 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
 앞뒤 벽의 이동 DEM 반발력, 3축 회전·압력구배·항력, 공극률 가중 반작용, 접촉 이력 해제,
 빈 old/new CSR 할당·정확한 E 크기·0→증가→비영(非零) 감소→0→재접촉·행의 접촉 교체,
 경계 CSR 증가와 해제, HashGrid rebuild 뒤 stable-ID 이력 승계, SPH 전용 경로,
@@ -225,7 +242,7 @@ Ghia et al.의 Re=100 비벽면 중심선 30점을 보간 비교한 통합 RMSE�
 최대 절대오차는 0.01550이다.
 
 아래 장기 실행 결과는 old/new CSR 전환과 z-up 좌표 전환 전의 dense/y-up 물리 baseline이다.
-현재 CSR·z-up 경로에서는 34개 회귀 테스트를 통과했으며 9,000 step 장기 재검증은 아직 수행하지 않았다.
+현재 CSR·z-up 경로에서는 35개 회귀 테스트를 통과했으며 9,000 step 장기 재검증은 아직 수행하지 않았다.
 기본 3D 조건으로 9,000 step(0.9 s)을 실행해 SPH·DEM VTP 각각 101개와
 3D GIF 101프레임을 생성했다. 모든 저장 물리량이 유한하고 SPH·DEM 경계의 위치와
 속도가 초기값과 같았다. 저장 프레임에서 최대 DEM–DEM 겹침은 0.003999 m,

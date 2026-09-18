@@ -1,12 +1,14 @@
 import tempfile
 import unittest
+from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
 import warp as wp
 from PIL import Image
 
-from input.Config_EISPH import EISPHConfig
+from input.Config import Solv
+from input.Config_SPH_DEM import Solv as SPHDEMSolv
 from input.gen_eisph import CavityPtlGeneration
 from kernel.KERNEL_EISPH_BC import Kernel_Dirichlet_BC
 from kernel.KERNEL_EISPH_KNL import (
@@ -47,6 +49,45 @@ class EISPHTests(unittest.TestCase):
         """Initialize Warp once for all CPU and optional CUDA checks."""
         wp.init()
 
+    def test_split_solv_defaults_share_one_schema(self) -> None:
+        """Keep one Solv schema with independent EISPH and SPH-DEM defaults."""
+        eisph = Solv(device="cpu")
+        sphdem = SPHDEMSolv(device="cpu")
+
+        eisph_fields = [(field.name, field.type) for field in fields(Solv)]
+        sphdem_fields = [(field.name, field.type) for field in fields(SPHDEMSolv)]
+        self.assertEqual(eisph_fields, sphdem_fields)
+        self.assertEqual(eisph.dx, 0.04)
+        self.assertEqual(eisph.bnd_layer, 3)
+        self.assertAlmostEqual(eisph.h, 0.052)
+        self.assertAlmostEqual(eisph.support, 0.104)
+        self.assertEqual(eisph.rho0, 1.0)
+        self.assertEqual(eisph.dt, 2.0e-3)
+        self.assertEqual(eisph.n_steps, 5000)
+        self.assertEqual(eisph.output_step, 100)
+        self.assertFalse(eisph.dem_enable)
+        self.assertEqual(eisph.cells, 25)
+        self.assertAlmostEqual(eisph.nu, 0.01)
+        self.assertEqual(sphdem.dx, 0.02)
+        self.assertAlmostEqual(sphdem.h, 0.026)
+        self.assertAlmostEqual(sphdem.support, 0.052)
+        self.assertEqual(sphdem.rho0, 1000.0)
+        self.assertEqual(sphdem.dt, 1.0e-4)
+        self.assertEqual(sphdem.n_steps, 9000)
+        self.assertEqual(sphdem.output_step, 90)
+        self.assertTrue(sphdem.dem_enable)
+        eisph.validate_eisph()
+        sphdem.validate_sph()
+        sphdem.validate_dem()
+
+        scaled = Solv(device="cpu", dx=0.2, h_factor=1.4)
+        explicit = SPHDEMSolv(device="cpu", h=0.03, support=0.06)
+        self.assertAlmostEqual(scaled.h, 0.28)
+        self.assertAlmostEqual(scaled.support, 0.56)
+        self.assertAlmostEqual(explicit.h, 0.03)
+        self.assertAlmostEqual(explicit.support, 0.06)
+        scaled.validate_eisph()
+
     def test_wendland_is_normalized_in_two_dimensions(self) -> None:
         """Integrate W over a disk and compare dW/dr with finite differences."""
         h = 0.13
@@ -66,7 +107,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_generator_builds_mirrored_cavity_ghosts(self) -> None:
         """Check cell centres, one shared struct, velocity BC and mirror IDs."""
-        solv = EISPHConfig(device="cpu", dx=0.2, boundary_layers=3,
+        solv = Solv(device="cpu", dx=0.2, bnd_layer=3,
                            n_steps=1, output_step=1)
         generator = CavityPtlGeneration(solv)
         fluid_pos = generator.fluid_particle()
@@ -98,7 +139,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_ppe_assembly_uses_pdf_rhs_sign(self) -> None:
         """Store b_i=(rho_0/dt)*div(u_i*) before cavity mean removal."""
-        solv = EISPHConfig(device="cpu", dx=0.2, boundary_layers=3,
+        solv = Solv(device="cpu", dx=0.2, bnd_layer=3,
                            n_steps=1, output_step=1, grid_slice=16)
         P_sph, P_bnd = CavityPtlGeneration(solv).build()
         constant_pressure = 3.25
@@ -136,7 +177,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_pdf_signed_weight_keeps_viscous_diffusion_direction(self) -> None:
         """Diffuse a centre maximum while convection is zero at that point."""
-        solv = EISPHConfig(device="cpu", dx=0.2, boundary_layers=3,
+        solv = Solv(device="cpu", dx=0.2, bnd_layer=3,
                            n_steps=1, output_step=1, grid_slice=16)
         P_sph, P_bnd = CavityPtlGeneration(solv).build()
         positions = P_sph.pos.numpy()
@@ -177,7 +218,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_general_velocity_dirichlet_boundary(self) -> None:
         """Apply nonuniform prescribed velocities to vel and vel_star."""
-        solv = EISPHConfig(device="cpu", dx=0.2, boundary_layers=3,
+        solv = Solv(device="cpu", dx=0.2, bnd_layer=3,
                            n_steps=1, output_step=1)
         P_sph, P_bnd = CavityPtlGeneration(solv).build()
         n_sph = P_sph.pos.shape[0]
@@ -208,7 +249,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_cavity_step_is_fixed_finite_and_mirrored(self) -> None:
         """Check fixed positions, finite fields, projection and circulation direction."""
-        solv = EISPHConfig(device="cpu", dx=0.1, boundary_layers=3,
+        solv = Solv(device="cpu", dx=0.1, bnd_layer=3,
                            n_steps=20, output_step=20, grid_slice=16)
         P_sph, P_bnd = CavityPtlGeneration(solv).build()
         initial_positions = P_sph.pos.numpy().copy()
@@ -240,7 +281,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_ppe_uses_one_implicit_pressure_update(self) -> None:
         """Match p^(t+1) with the stored old-pressure diagonal relation."""
-        solv = EISPHConfig(device="cpu", dx=0.2, boundary_layers=3,
+        solv = Solv(device="cpu", dx=0.2, bnd_layer=3,
                            n_steps=1, output_step=1, grid_slice=16)
         old_pressure = np.linspace(-0.25, 0.25, solv.cells ** 2,
                                    dtype=np.float32)
@@ -280,7 +321,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_re100_cavity_matches_ghia_centerlines(self) -> None:
         """Compare both steady centreline profiles with the Ghia Re=100 data."""
-        solv = EISPHConfig(device="cpu", n_steps=5000, output_step=5000)
+        solv = Solv(device="cpu", n_steps=5000, output_step=5000)
         P_sph, P_bnd = CavityPtlGeneration(solv).build()
 
         run_eisph(solv, P_sph, P_bnd)
@@ -324,7 +365,7 @@ class EISPHTests(unittest.TestCase):
 
         results = []
         for device in ("cpu", "cuda:0"):
-            solv = EISPHConfig(device=device, dx=0.2, boundary_layers=3,
+            solv = Solv(device=device, dx=0.2, bnd_layer=3,
                                n_steps=2, output_step=2, grid_slice=16)
             P_sph, P_bnd = CavityPtlGeneration(solv).build()
             run_eisph(solv, P_sph, P_bnd)
@@ -337,7 +378,7 @@ class EISPHTests(unittest.TestCase):
 
     def test_animation_stays_in_a_tests_temporary_directory(self) -> None:
         """Encode two frames under tests and remove them with the temporary directory."""
-        solv = EISPHConfig(device="cpu", dx=0.2, n_steps=1,
+        solv = Solv(device="cpu", dx=0.2, n_steps=1,
                            output_step=1, gif_fps=4)
         positions = CavityPtlGeneration(solv).fluid_particle()
         zero = np.zeros_like(positions)

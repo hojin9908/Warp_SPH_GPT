@@ -9,7 +9,7 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.lines import Line2D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 from output.output import SPH_TYPE, gather_state
 from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
 

@@ -3,7 +3,7 @@ from typing import Any
 
 import warp as wp
 
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
 from input.gen_ptl import DamPtlGeneration
 from input.gen_dem import DEMPtlGeneration

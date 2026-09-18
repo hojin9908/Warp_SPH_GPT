@@ -2,7 +2,7 @@ import numpy as np
 import warp as wp
 
 from input.struct import SPHptl, BNDptl
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 
 class DamPtlGeneration:
     """

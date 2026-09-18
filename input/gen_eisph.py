@@ -1,7 +1,7 @@
 import numpy as np
 import warp as wp
 
-from input.Config_EISPH import EISPHConfig
+from input.Config import Solv
 from input.struct_eisph import EISPHptl
 
 
@@ -13,8 +13,8 @@ class CavityPtlGeneration:
     while ghost points continue the same lattice outside the four walls.
     """
 
-    def __init__(self, solv: EISPHConfig) -> None:
-        """Keep the shared EISPH configuration."""
+    def __init__(self, solv: Solv) -> None:
+        """Keep the EISPH configuration."""
         self.solv = solv
 
     def fluid_particle(self) -> np.ndarray:
@@ -33,7 +33,7 @@ class CavityPtlGeneration:
             and stable mirrored fluid index [N_bnd].
         """
         n = self.solv.cells
-        layers = self.solv.boundary_layers
+        layers = self.solv.bnd_layer
         ids = np.arange(-layers, n + layers, dtype=np.int32)
         grid_x, grid_z = np.meshgrid(ids, ids, indexing="xy")
         # One shell mask creates all four walls without interior lattice points.
@@ -56,7 +56,7 @@ class CavityPtlGeneration:
                             np.where(iz >= n, 2 * n - iz - 1, iz))
         mirror = (mirror_z * n + mirror_x).astype(np.int32)
         if np.any((mirror < 0) | (mirror >= n * n)):
-            raise ValueError("boundary_layers cannot exceed the cavity cell count")
+            raise ValueError("bnd_layer cannot exceed the cavity cell count")
         return pos, vel_bc, mirror
 
     def _build_particle(self,
@@ -101,7 +101,7 @@ class CavityPtlGeneration:
         P_sph: EISPHptl for fixed fluid points [N_sph]
         P_bnd: EISPHptl for fixed ghost boundary points [N_bnd]
         """
-        self.solv.validate()
+        self.solv.validate_eisph()
         fluid_pos = self.fluid_particle()  # [N_sph,3]
         boundary_pos, vel_bc, boundary_mirror = self.boundary_particle()
         fluid_vel = np.zeros_like(fluid_pos)

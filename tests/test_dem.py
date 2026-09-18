@@ -9,7 +9,7 @@ import numpy as np
 import warp as wp
 from PIL import Image
 
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 from input.gen_ptl import DamPtlGeneration
 from input.gen_dem import DEMPtlGeneration
 from kernel.KERNEL_DEM_force import Kernel_count_dem_contacts, Kernel_force_dem

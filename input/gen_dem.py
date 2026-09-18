@@ -1,7 +1,7 @@
 import numpy as np
 import warp as wp
 
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 from input.struct import DEMptl, DEMBNDptl
 
 

@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 
-from input.Config_EISPH import EISPHConfig
+from input.Config import Solv
 
 
 def save_cavity_gif(positions: np.ndarray,
                     velocity_frames: list[np.ndarray],
                     times: list[float],
-                    solv: EISPHConfig,
+                    solv: Solv,
                     path: str | Path | None = None) -> Path:
     """
     Render the EISPH lid-driven cavity as a two-dimensional GIF.

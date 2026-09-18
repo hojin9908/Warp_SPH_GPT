@@ -3,7 +3,7 @@ from collections.abc import Callable
 import numpy as np
 import warp as wp
 
-from input.Config_EISPH import EISPHConfig
+from input.Config import Solv
 from input.struct_eisph import EISPHptl
 from kernel.KERNEL_EISPH_KNL import Kernel_prepare_kgc
 from kernel.KERNEL_EISPH_BC import (
@@ -22,7 +22,7 @@ from kernel.KERNEL_EISPH_step import (
 )
 
 
-def EISPH_OneStep(solv: EISPHConfig,
+def EISPH_OneStep(solv: Solv,
                   P_sph: EISPHptl,
                   P_bnd: EISPHptl,
                   grid_sph: wp.HashGrid,
@@ -89,7 +89,7 @@ def EISPH_OneStep(solv: EISPHConfig,
                           solv.support, solv.h])
 
 
-def run_eisph(solv: EISPHConfig,
+def run_eisph(solv: Solv,
               P_sph: EISPHptl,
               P_bnd: EISPHptl,
               progress: Callable[[int, int], None] | None = None
@@ -110,7 +110,7 @@ def run_eisph(solv: EISPHConfig,
     return: fixed positions [N_sph,3], velocity frames [frame][N_sph,3],
         and physical frame times [frame]. Particle fields are also updated in place.
     """
-    solv.validate()
+    solv.validate_eisph()
     with wp.ScopedDevice(solv.device):
         n_sph = P_sph.pos.shape[0]
         grid_sph = wp.HashGrid(solv.grid_slice, solv.grid_slice, solv.grid_slice)

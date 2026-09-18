@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import warp as wp
 
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 from input.gen_ptl import DamPtlGeneration
 from input.gen_dem import DEMPtlGeneration
 from kernel.KERNEL_KNL import Kernel_w_Wendland, Kernel_dw_Wendland

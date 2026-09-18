@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 import math
 
 @dataclass
@@ -76,12 +75,23 @@ class Solv:
     dem_mass, dem_bnd_mass: 질량 rho * volume [kg]
     dem_inertia, dem_bnd_inertia: 구의 각 축에 대한 관성모멘트 [kg m^2]
     dem_support: 연계 커널 지지 반경 2 * dem_h [m]
+
+    # EISPH setting
+    length: 정사각 cavity의 x/z 방향 길이 [m]
+    lid_velocity: 상부 lid의 +x 방향 속도 [m/s]
+    reynolds: Reynolds number, Re = U_lid * L / nu [-]
+    gif_fps: EISPH GIF 재생 속도 [frame/s]
+    animation_path: EISPH lid-driven cavity GIF 저장 경로
+
+    # derived EISPH property
+    nu: 동점성계수 U_lid * L / Re [m^2/s]
+    cells: cavity 한 변의 고정 유체점 수
     """
     # project property
     device: str = "cuda:0"
 
     # simulation setting
-    dx: float = 0.02
+    dx: float = 0.04
     tank_width: float = 2.0
     tank_height: float = 1.0
     tank_depth: float = 0.4
@@ -92,11 +102,11 @@ class Solv:
     fluid_origin_y: float = 0.0
     fluid_origin_z: float = 0.0
     bnd_layer: int = 3
-    h: float = 1.3 * 0.02
-    support: float = 2.0 * (1.3 * 0.02)
+    h: float | None = None
+    support: float | None = None
 
     # physical coefficient
-    rho0: float = 1000.0
+    rho0: float = 1.0
     gamma: float = 7.0
     c0: float = 31.3209
     mu: float = 0.05
@@ -107,11 +117,11 @@ class Solv:
     shepard_step: int = 20
 
     # PDE solver hyperparameter
-    dt: float = 1.0e-4
-    n_steps: int = 9000
+    dt: float = 2.0e-3
+    n_steps: int = 5000
 
     # output
-    output_step: int = 90
+    output_step: int = 100
     gif_save: bool = True
     output_dir: str = "result/3d"
     animation_dir: str = "animation/3d"
@@ -120,7 +130,7 @@ class Solv:
     grid_slice: int = 64
 
     # DEM setting (3D solid spheres; SI mass, force and torque)
-    dem_enable: bool = True
+    dem_enable: bool = False
     dem_radius: float = 0.025
     dem_rho: float = 2500.0
     dem_K: float = 2.0e4                  # normal / tangential spring stiffness [N/m]
@@ -151,6 +161,20 @@ class Solv:
     dem_porosity_min: float = 0.05
     dem_porosity_max: float = 1.0
     dem_dt_safety: float = 0.1
+
+    # Eulerian ISPH lid-driven cavity
+    length: float = 1.0
+    lid_velocity: float = 1.0
+    reynolds: float = 100.0
+    gif_fps: int = 20
+    animation_path: str = "animation/lid_driven_cavity.gif"
+
+    def __post_init__(self) -> None:
+        """Derive h and support from the selected lattice when omitted."""
+        if self.h is None:
+            self.h = self.h_factor * self.dx
+        if self.support is None:
+            self.support = 2.0 * self.h
 
     @property
     def dem_volume(self) -> float:
@@ -186,6 +210,16 @@ class Solv:
     def dem_support(self) -> float:
         """Return the common Wendland support radius for SPH-DEM exchange [m]."""
         return 2.0 * self.dem_h
+
+    @property
+    def nu(self) -> float:
+        """Return EISPH kinematic viscosity U_lid * L / Re [m^2/s]."""
+        return self.lid_velocity * self.length / self.reynolds
+
+    @property
+    def cells(self) -> int:
+        """Return the number of EISPH cell-centred points along one side."""
+        return int(round(self.length / self.dx))
 
     def validate_sph(self) -> None:
         """
@@ -225,6 +259,41 @@ class Solv:
             if (not math.isfinite(origin) or origin < 0.0 or origin + extent > tank + 1.0e-12
                     or round(extent / self.dx) < 1):
                 raise ValueError(f"initial fluid block must fit the tank along {axis}")
+
+    def validate_eisph(self) -> None:
+        """
+        Check the EISPH cavity lattice, material and fixed time step.
+
+        The advection and viscosity bounds are conservative checks for the
+        explicit predictor. The time interval is not changed automatically.
+
+        # Output
+        Raise ValueError for an invalid setting; all configuration values stay unchanged.
+        """
+        for name in ("length", "dx", "h_factor", "h", "support", "rho0",
+                     "lid_velocity", "reynolds", "dt"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be finite and positive")
+        for name in ("bnd_layer", "n_steps", "output_step", "gif_fps", "grid_slice"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        if not math.isclose(self.h, self.h_factor * self.dx):
+            raise ValueError("EISPH smoothing length must equal h_factor*dx")
+        if not math.isclose(self.support, 2.0 * self.h):
+            raise ValueError("Wendland support must equal 2*h")
+        if self.cells < 5 or not math.isclose(self.cells * self.dx, self.length,
+                                               rel_tol=0.0, abs_tol=1.0e-10):
+            raise ValueError("length must be an integer multiple of dx with at least 5 cells")
+        if self.bnd_layer < math.ceil(self.support / self.dx):
+            raise ValueError("bnd_layer must cover the complete kernel support")
+        if self.bnd_layer > self.cells:
+            raise ValueError("bnd_layer cannot exceed the cavity cell count")
+        if self.dt > 0.25 * self.dx / self.lid_velocity:
+            raise ValueError("dt exceeds the explicit advection limit")
+        if self.dt > 0.125 * self.dx * self.dx / self.nu:
+            raise ValueError("dt exceeds the explicit viscosity limit")
 
     def validate_dem(self) -> None:
         """

@@ -1,6 +1,6 @@
 import numpy as np
 
-from input.Config import Solv
+from input.Config_SPH_DEM import Solv
 from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
 from output.gif_gen import collect_frame, save_gif
 from output.output import save_vtk, save_dem_vtk, save_pvd
