@@ -22,6 +22,42 @@ py -3.12 -m unittest discover -s tests -v
 기본 출력은 `result/3d`, `animation/3d`에 저장한다. 이전 2D 출력과 소스 백업
 `results/2d_baseline/source.zip`은 별도로 보존했다.
 
+## Eulerian ISPH Lid-Driven Cavity
+
+고정된 x–z 셀 중심 입자에서 2차원 비압축성 Eulerian ISPH를 실행한다.
+
+```powershell
+py -3.12 main_EISHP.py --device cuda:0
+py -3.12 main_EISHP.py --device cpu --steps 200 --output-step 20
+```
+
+`input/gen_eisph.py`가 정사각 cavity와 대칭 ghost를 만들고, `source/EISPH.py`가
+Eulerian 대류·점성 predictor, SOPHIA식 단일 패스 대각 pressure update,
+velocity projection을 수행한다.
+EISPH 커널은 공통 Wendland·KGC(`KERNEL_EISPH_KNL.py`), mirror 경계조건
+(`KERNEL_EISPH_BC.py`), 대류·점성 predictor(`KERNEL_EISPH_force.py`), 압력 갱신
+(`KERNEL_EISPH_PPE.py`), projection·진단(`KERNEL_EISPH_step.py`)으로 나뉜다.
+유체와 경계는 모두 `EISPHptl` 하나를 사용하며 위치는 갱신하지 않는다. 고정된 유체·경계
+HashGrid와 kernel-gradient correction은 실행 초기에 한 번만 구성한다. 위쪽 ghost에는
+이동 lid, 나머지 ghost에는 no-slip 벽 조건을 적용한다. `Kernel_Dirichlet_BC`는 ghost별
+`vel_bc`를 사용하므로 정지 벽, 이동 벽, 비균일 지정 속도를 같은 식으로 처리한다. 결과는 속력장과 속도 벡터를 담은
+`animation/lid_driven_cavity.gif` 하나로 저장한다. 기본 조건은 Re=100, 25×25 유체점,
+dt=0.002 s, 5,000 step이다.
+
+PPE는 이전 압력의 이웃 기여를 고정한 뒤 대각 관계로 새 압력을 한 번 계산하며,
+Jacobi 반복과 완화계수를 사용하지 않는다. predictor/PPE/projection 구성은
+[SOPHIA Fluidized Bed 코드](https://github.com/hojin9908/Fluidized_bed_master)를 기준으로
+차원 축소했으며, 폐 cavity PPE에는 RHS 평균 제거와 전체 압력의 공통 gauge 이동을 추가했다.
+PDF와 같이 $A_{ij}=2V_j(\mathbf r_{ij}\cdot\widetilde{\nabla_iW}_{ij})/
+r_{ij}^2$를 사용하므로 $A_{ij}$는 일반적으로 음수이다.
+`EISPHptl.Aij[i]`에는 $\sum_j A_{ij}+\sum_{bj}A_{i,bj}$,
+`bi[i]`에는 먼저 $b_i^{\mathrm{raw}}=\rho_0D_i^*/\Delta t$를 저장한 뒤
+$b_i^{t+1}=b_i^{\mathrm{raw}}-N_f^{-1}\sum_k b_k^{\mathrm{raw}}$로 평균을 제거하며,
+`Aijpj[i]`에는 $\sum_j A_{ij}p_j^t+\sum_{bj}A_{i,bj}p_{m(bj)}^t$를 저장한다.
+별도 압력 커널은 이 세 값으로 $p_i^{t+1}$을 한 번 계산한다.
+RHS 평균은 병렬 reduction으로 계산하며, projection 이후 진단용 이웃 순회는 저장 step과
+마지막 step에만 수행한다.
+
 ## 기본 3D 조건
 
 - 수조: 2 × 0.4 × 1 m (x × y × z; 길이 × 깊이 × 높이), 바닥과 네 측면, 상부 개방.
@@ -173,16 +209,23 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
   `x=[-0.06,2.06]`, `y=[-0.06,0.46]`, `z=[-0.06,2.06]` m를 사용한다.
 - 초기 상태와 마지막 상태는 출력 주기에 맞지 않아도 저장한다 (`output_step > 0`).
 
-테스트 23개가 통과했다. −z 중력 방향, 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
+테스트 34개가 통과했다. −z 중력 방향, 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
 앞뒤 벽의 이동 DEM 반발력, 3축 회전·압력구배·항력, 공극률 가중 반작용, 접촉 이력 해제,
 빈 old/new CSR 할당·정확한 E 크기·0→증가→비영(非零) 감소→0→재접촉·행의 접촉 교체,
-경계 CSR 증가와 해제, HashGrid rebuild 뒤 stable-ID 이력 승계, SPH 전용 경로와
-출력·GIF를 확인한다.
+경계 CSR 증가와 해제, HashGrid rebuild 뒤 stable-ID 이력 승계, SPH 전용 경로,
+EISPH 단일 압력 갱신식·cavity 순환·출력·GIF를 확인한다.
 물리 커널은 CPU와 CUDA에서 검사했다.
-실험 자료와의 정량 검증, 격자·시간 간격 수렴성 검증은 수행하지 않았다.
+EISPH는 Ghia Re=100 기준해와 정량 비교했다. 다른 모델의 실험 자료 검증과
+격자·시간 간격 수렴성 검증은 수행하지 않았다.
+
+EISPH Re=100, 25×25, 5,000 step 결과는 모든 값이 유한하고 고정 위치·no-slip 오차가 0이다.
+상대 PPE 잔차는 3.80e-6, 중심 속도 `(u,w)=(-0.1906,0.0563)`이며
+`animation/lid_driven_cavity.gif`에 51프레임으로 저장했다.
+Ghia et al.의 Re=100 비벽면 중심선 30점을 보간 비교한 통합 RMSE는 0.00840,
+최대 절대오차는 0.01550이다.
 
 아래 장기 실행 결과는 old/new CSR 전환과 z-up 좌표 전환 전의 dense/y-up 물리 baseline이다.
-현재 CSR·z-up 경로에서는 23개 회귀 테스트를 통과했으며 9,000 step 장기 재검증은 아직 수행하지 않았다.
+현재 CSR·z-up 경로에서는 34개 회귀 테스트를 통과했으며 9,000 step 장기 재검증은 아직 수행하지 않았다.
 기본 3D 조건으로 9,000 step(0.9 s)을 실행해 SPH·DEM VTP 각각 101개와
 3D GIF 101프레임을 생성했다. 모든 저장 물리량이 유한하고 SPH·DEM 경계의 위치와
 속도가 초기값과 같았다. 저장 프레임에서 최대 DEM–DEM 겹침은 0.003999 m,
