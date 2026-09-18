@@ -7,9 +7,9 @@ import numpy as np
 import warp as wp
 from PIL import Image
 
-from input.Config import Solv
-from input.Config_SPH_DEM import Solv as SPHDEMSolv
-from input.gen_eisph import CavityPtlGeneration
+from input_gen.config import GenerationConfig as Solv
+from input_gen.config import CoupledGenerationConfig as SPHDEMSolv
+from input_gen.gen_eisph import CavityPtlGeneration
 from kernel.KERNEL_EISPH_BC import Kernel_Dirichlet_BC
 from kernel.KERNEL_EISPH_KNL import (
     Kernel_dw_Wendland_2d,
@@ -49,8 +49,8 @@ class EISPHTests(unittest.TestCase):
         """Initialize Warp once for all CPU and optional CUDA checks."""
         wp.init()
 
-    def test_split_solv_defaults_share_one_schema(self) -> None:
-        """Keep one Solv schema with independent EISPH and SPH-DEM defaults."""
+    def test_preprocessor_preserves_original_example_defaults(self) -> None:
+        """Preserve the old case defaults in the preprocessor, outside solver Solv."""
         eisph = Solv(device="cpu")
         sphdem = SPHDEMSolv(device="cpu")
 

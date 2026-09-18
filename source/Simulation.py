@@ -1,6 +1,7 @@
 import warp as wp
 
 from input.Config_SPH_DEM import Solv
+from input.input_reader import dem_search_scales
 from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
 
 from kernel.KERNEL_rho import Kernel_shepard_sph, Kernel_density_sph, Kernel_density_bnd
@@ -103,7 +104,8 @@ def SPHDEM_OneStep(solv: Solv,
                    P_dem: DEMptl, P_dem_bnd: DEMBNDptl,
                    grid_sph: wp.HashGrid, grid_bnd: wp.HashGrid,
                    grid_dem: wp.HashGrid, grid_dem_bnd: wp.HashGrid,
-                   step: int):
+                   step: int,
+                   search_scales: tuple[float, float, float, float] | None = None):
     """
     Simulate one coupled SPH-DEM step at a common position / velocity time level.
 
@@ -128,6 +130,8 @@ def SPHDEM_OneStep(solv: Solv,
     """
     n_sph = P_sph.pos.shape[0]
     n_dem = P_dem.pos.shape[0]
+    radius_max, boundary_radius_max, h_max, h_uniform = (
+        dem_search_scales(P_dem, P_dem_bnd) if search_scales is None else search_scales)
     # 1) SPH density, pressure and forces; leave motion at the current time level.
     SPH_OneStep(solv, P_sph, P_bnd, grid_sph, grid_bnd, step, integrate=False)
 
@@ -137,7 +141,7 @@ def SPHDEM_OneStep(solv: Solv,
     #   *_new = this step's writable contact CSR
     P_dem.contact_dem_offset_new.zero_()
     wp.launch(Kernel_count_dem_contacts, dim=n_dem,
-              inputs=[P_dem, grid_dem.id, solv.dem_radius])
+              inputs=[P_dem, grid_dem.id, radius_max])
     # Before scan, contact_dem_offset_new[a] is the number of particles
     # contacting P_dem[a]. The last element remains zero.
     # After scan, [offset_new[a], offset_new[a+1]) is P_dem[a]'s CSR row.
@@ -155,7 +159,7 @@ def SPHDEM_OneStep(solv: Solv,
     P_dem.tang_dem_new = wp.empty(
         n_contact_dem, dtype=wp.vec3, device=P_dem.pos.device)
     wp.launch(Kernel_force_dem, dim=n_dem,
-              inputs=[P_dem, grid_dem.id, solv.dem_radius, solv.g, solv.dt])
+              inputs=[P_dem, grid_dem.id, radius_max, solv.g, solv.dt])
     # The finished write side becomes the readable side for the next step.
     # The retired old arrays move to *_new, which also keeps their CUDA memory
     # alive until later same-stream work has finished using them.
@@ -171,7 +175,7 @@ def SPHDEM_OneStep(solv: Solv,
     P_dem.contact_bnd_offset_new.zero_()
     wp.launch(Kernel_count_bnd_contacts, dim=n_dem,
               inputs=[P_dem, P_dem_bnd, grid_dem_bnd.id,
-                      solv.dem_bnd_radius])
+                      boundary_radius_max])
     # Before scan this is the contact count of each moving particle; after
     # scan it stores the new DEM-boundary CSR row range for that particle.
     wp.utils.array_scan(P_dem.contact_bnd_offset_new,
@@ -188,7 +192,7 @@ def SPHDEM_OneStep(solv: Solv,
         n_contact_bnd, dtype=wp.vec3, device=P_dem.pos.device)
     wp.launch(Kernel_bc_dem, dim=n_dem,
               inputs=[P_dem, P_dem_bnd, grid_dem_bnd.id,
-                      solv.dem_bnd_radius, solv.dt])
+                      boundary_radius_max, solv.dt])
     # Publish the completed boundary CSR and retain the retired buffers in
     # *_new until they are safely reused on the next step.
     P_dem.contact_bnd_offset_old, P_dem.contact_bnd_offset_new = (
@@ -201,16 +205,16 @@ def SPHDEM_OneStep(solv: Solv,
     # 4) Fluid fraction and pressure gradient on the SPH particle positions.
     wp.launch(Kernel_prep_sphdem, dim=n_sph,
               inputs=[P_sph, P_bnd, P_dem, grid_sph.id, grid_bnd.id, grid_dem.id,
-                      solv.dem_support, solv.dem_h, solv.support, solv.h,
+                      2.0 * h_max, h_uniform, solv.support, solv.h,
                       solv.dem_porosity_min, solv.dem_porosity_max])
     # 5) Fluid interpolation -> DEM pressure force and semi-implicit drag.
     wp.launch(Kernel_interaction_dem, dim=n_dem,
               inputs=[P_sph, P_dem, grid_sph.id, grid_dem.id,
-                      solv.dem_support, solv.dem_h, solv.mu,
+                      solv.mu,
                       solv.dem_porosity_min, solv.dem_porosity_max, solv.dt])
     # 6) Distribute the stored DEM drag reaction to SPH using the same support.
     wp.launch(Kernel_interaction_sph, dim=n_sph,
-              inputs=[P_sph, P_dem, grid_sph.id, grid_dem.id, solv.dem_support, solv.dem_h])
+              inputs=[P_sph, P_dem, grid_sph.id, grid_dem.id, 2.0 * h_max])
 
     # 7) Integrate moving particles only, after both sides of the exchange are ready.
     wp.launch(Kernel_step_sph, dim=n_sph, inputs=[P_sph, solv.dt])

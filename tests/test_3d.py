@@ -3,9 +3,9 @@ import unittest
 import numpy as np
 import warp as wp
 
-from input.Config_SPH_DEM import Solv
-from input.gen_ptl import DamPtlGeneration
-from input.gen_dem import DEMPtlGeneration
+from input_gen.config import CoupledGenerationConfig as Solv
+from input_gen.gen_ptl import DamPtlGeneration
+from input_gen.gen_dem import DEMPtlGeneration
 from kernel.KERNEL_KNL import Kernel_w_Wendland, Kernel_dw_Wendland
 from kernel.KERNEL_force import Kernel_force_sph
 from kernel.KERNEL_DEM_step import Kernel_step_dem
@@ -177,13 +177,13 @@ class ThreeDimensionalTests(unittest.TestCase):
                 P.vel.fill_(wp.vec3(*fluid_velocity))
                 P.porosity.fill_(0.8)
                 wp.launch(Kernel_interaction_dem, dim=1,
-                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h,
+                          inputs=[P, D, grids[0].id, grids[2].id,
                                   s.mu, s.dem_porosity_min, s.dem_porosity_max, s.dt])
                 np.testing.assert_allclose(D.pressure_force.numpy()[0], -s.dem_volume*gradient, rtol=3e-6)
                 drag = D.drag.numpy()[0]
                 np.testing.assert_allclose(drag/np.linalg.norm(drag), fluid_velocity/np.linalg.norm(fluid_velocity), rtol=3e-6)
                 wp.launch(Kernel_interaction_sph, dim=P.pos.shape[0],
-                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h])
+                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support])
                 reaction = np.sum(P.m.numpy()[:, None]*P.porosity.numpy()[:, None]*P.acc_dem.numpy(), axis=0)
                 np.testing.assert_allclose(reaction, -drag, rtol=3e-6, atol=1e-6)
 

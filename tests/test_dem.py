@@ -9,9 +9,9 @@ import numpy as np
 import warp as wp
 from PIL import Image
 
-from input.Config_SPH_DEM import Solv
-from input.gen_ptl import DamPtlGeneration
-from input.gen_dem import DEMPtlGeneration
+from input_gen.config import CoupledGenerationConfig as Solv
+from input_gen.gen_ptl import DamPtlGeneration
+from input_gen.gen_dem import DEMPtlGeneration
 from kernel.KERNEL_DEM_force import Kernel_count_dem_contacts, Kernel_force_dem
 from kernel.KERNEL_DEM_BC import Kernel_count_bnd_contacts, Kernel_bc_dem
 from kernel.KERNEL_DEM_step import Kernel_step_dem
@@ -524,7 +524,7 @@ class DEMTests(unittest.TestCase):
                 P.pgf.fill_(wp.vec3(0, 0, s.rho0 * s.g))
                 P.porosity.fill_(0.7)
                 wp.launch(Kernel_interaction_dem, dim=1,
-                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h,
+                          inputs=[P, D, grids[0].id, grids[2].id,
                                   s.mu, s.dem_porosity_min, s.dem_porosity_max, s.dt])
                 np.testing.assert_allclose(D.pressure_force.numpy()[0],
                                            [0, 0, s.dem_volume*s.rho0*s.g], rtol=2e-6)
@@ -534,7 +534,7 @@ class DEMTests(unittest.TestCase):
                 P.acc.fill_(wp.vec3(1.0, 0.0, -s.g))
                 initial_acc = P.acc.numpy().copy()
                 wp.launch(Kernel_interaction_sph, dim=P.pos.shape[0],
-                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h])
+                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support])
                 # Reference exchanges momentum using epsilon*m during a fixed-porosity stage.
                 reaction = np.sum(P.m.numpy()[:, None] * P.porosity.numpy()[:, None] * P.acc_dem.numpy(), axis=0)
                 np.testing.assert_allclose(reaction, -D.drag.numpy().sum(axis=0), rtol=3e-6, atol=1e-5)
@@ -543,7 +543,7 @@ class DEMTests(unittest.TestCase):
                 D.pos.fill_(wp.vec3(0.24, 0.16, 2.0))
                 grids[2].build(D.pos, s.dem_support)
                 wp.launch(Kernel_interaction_dem, dim=1,
-                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h,
+                          inputs=[P, D, grids[0].id, grids[2].id,
                                   s.mu, s.dem_porosity_min, s.dem_porosity_max, s.dt])
                 np.testing.assert_array_equal(D.drag.numpy(), 0)
                 np.testing.assert_array_equal(D.pressure_force.numpy(), 0)
@@ -551,7 +551,7 @@ class DEMTests(unittest.TestCase):
                 # A dry neighbour contributes zero and overwrites the old diagnostic value.
                 previous_acc = P.acc.numpy().copy()
                 wp.launch(Kernel_interaction_sph, dim=P.pos.shape[0],
-                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support, s.dem_h])
+                          inputs=[P, D, grids[0].id, grids[2].id, s.dem_support])
                 np.testing.assert_array_equal(P.acc_dem.numpy(), 0.0)
                 np.testing.assert_array_equal(P.acc.numpy(), previous_acc)
 

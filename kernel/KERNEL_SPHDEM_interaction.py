@@ -56,7 +56,8 @@ def Kernel_prep_sphdem(P_sph: SPHptl, P_bnd: BNDptl, P_dem: DEMptl,
     P_bnd: Particle structure of SPH dummy boundary particles [N_bnd]
     P_dem: Particle structure of moving DEM spheres [N_dem]
     grid_sph, grid_bnd, grid_dem: HashGrid handles built from current positions
-    support, h: coupling support radius and smoothing length [m]
+    support: maximum DEM coupling support radius [m]
+    h: common DEM h when uniform, otherwise 0 (per-neighbour normalization)
     sph_support, sph_h: original SPH support radius and smoothing length [m]
     eps_min, eps_max: allowed fluid-fraction bounds [-]
 
@@ -73,16 +74,26 @@ def Kernel_prep_sphdem(P_sph: SPHptl, P_bnd: BNDptl, P_dem: DEMptl,
     flt = float(0.0)                              # fluid volume-weighted kernel sum [-]
     solid = float(0.0)                            # DEM volume-weighted kernel sum [-]
     pgf = wp.vec3(0.0, 0.0, 0.0)                 # negative pressure gradient [Pa/m]
-    # Sph - Sph: fluid-only Shepard factor for the coupling support.
-    for j in wp.hash_grid_query(grid_sph, ri, support):
-        dist = wp.length(ri - P_sph.pos[j])
-        if dist < support:
-            flt = flt + P_sph.m[j] / P_sph.rho[j] * Kernel_w_Wendland(dist, h)
-    # Sph - Dem: sum solid sphere volumes to estimate local solid fraction.
+    # Uniform h keeps the original inexpensive Shepard normalization exactly.
+    if h > 0.0:
+        for j in wp.hash_grid_query(grid_sph, ri, support):
+            dist = wp.length(ri - P_sph.pos[j])
+            if dist < support:
+                flt = flt + P_sph.m[j] / P_sph.rho[j] * Kernel_w_Wendland(dist, h)
+    # A heterogeneous cloud normalizes each solid contribution using that
+    # neighbour's h and a fluid-only kernel sum centred at the SPH point.
     for b in wp.hash_grid_query(grid_dem, ri, support):
+        hb = P_dem.h[b]
         dist = wp.length(ri - P_dem.pos[b])
-        if dist < support:
-            solid = solid + P_dem.volume[b] * Kernel_w_Wendland(dist, h)
+        if dist < 2.0 * hb:
+            local_flt = flt
+            if h <= 0.0:
+                local_flt = float(0.0)
+                for j in wp.hash_grid_query(grid_sph, ri, 2.0 * hb):
+                    fluid_distance = wp.length(ri - P_sph.pos[j])
+                    if fluid_distance < 2.0 * hb:
+                        local_flt = local_flt + P_sph.m[j] / P_sph.rho[j] * Kernel_w_Wendland(fluid_distance, hb)
+            solid = solid + P_dem.volume[b] * Kernel_w_Wendland(dist, hb) / (local_flt + 1.0e-20)
     # Sph - Sph: difference pressure gradient using the original SPH support.
     for j in wp.hash_grid_query(grid_sph, ri, sph_support):
         rij = ri - P_sph.pos[j]
@@ -100,14 +111,14 @@ def Kernel_prep_sphdem(P_sph: SPHptl, P_bnd: BNDptl, P_dem: DEMptl,
             dwibj = Kernel_dw_Wendland(dist, sph_h) * ribj / dist  # grad_i Wibj
             pgf = pgf - P_bnd.m[bj] / P_bnd.rho[bj] * (P_bnd.pres[bj] - P_sph.pres[i]) * dwibj
     # The reaction kernel divides by porosity, so retain the configured positive floor.
-    P_sph.porosity[i] = wp.clamp(1.0 - solid / (flt + 1.0e-20), eps_min, eps_max)
+    P_sph.porosity[i] = wp.clamp(1.0 - solid, eps_min, eps_max)
     P_sph.pgf[i] = pgf
 
 
 @wp.kernel
 def Kernel_interaction_dem(P_sph: SPHptl, P_dem: DEMptl,
                            grid_sph: wp.uint64, grid_dem: wp.uint64,
-                           support: float, h: float, mu: float,
+                           mu: float,
                            eps_min: float, eps_max: float, dt: float) -> None:
     """
     Interpolate fluid fields and add pressure force / semi-implicit drag to DEM.
@@ -118,7 +129,7 @@ def Kernel_interaction_dem(P_sph: SPHptl, P_dem: DEMptl,
     P_sph: Particle structure of SPH particles, including -grad(p) in pgf [N_sph]
     P_dem: Particle structure of moving DEM spheres [N_dem]
     grid_sph, grid_dem: HashGrid handles for current fluid / DEM positions
-    support, h: shared coupling support radius and smoothing length [m]
+    P_dem.h[a]: this particle's coupling smoothing length; support is 2*h [m]
     mu: dynamic fluid viscosity [Pa s]
     eps_min, eps_max: allowed fluid-fraction bounds [-]
     dt: time interval for the semi-implicit drag coefficient [s]
@@ -134,6 +145,8 @@ def Kernel_interaction_dem(P_sph: SPHptl, P_dem: DEMptl,
     tid = wp.tid()
     a = wp.hash_grid_point_id(grid_dem, tid)
     ra = P_dem.pos[a]
+    h = P_dem.h[a]
+    support = 2.0 * h
     flt = float(0.0)
     solid = float(0.0)
     rho_f = float(0.0)
@@ -177,7 +190,7 @@ def Kernel_interaction_dem(P_sph: SPHptl, P_dem: DEMptl,
 @wp.kernel
 def Kernel_interaction_sph(P_sph: SPHptl, P_dem: DEMptl,
                            grid_sph: wp.uint64, grid_dem: wp.uint64,
-                           support: float, h: float) -> None:
+                           support: float) -> None:
     """
     Add DEM drag reaction to the fluid acceleration before SPH integration.
 
@@ -186,7 +199,8 @@ def Kernel_interaction_sph(P_sph: SPHptl, P_dem: DEMptl,
     P_sph: Particle structure of SPH particles, including current positive porosity [N_sph]
     P_dem: Particle structure with current DEM drag and flt_s values [N_dem]
     grid_sph, grid_dem: HashGrid handles for current fluid / DEM positions
-    support, h: the same support and smoothing length used by DEM interpolation [m]
+    support: maximum 2*P_dem.h for the broad neighbour search [m]
+    Each reaction uses the source DEM h, matching its interpolation weights.
 
     # Output
     P_sph.acc_dem[i] [m/s^2], P_sph.acc[i] (additive) [m/s^2]
@@ -204,8 +218,8 @@ def Kernel_interaction_sph(P_sph: SPHptl, P_dem: DEMptl,
     # Sph - Dem: distribute each wet DEM drag with its fluid-only normalization.
     for b in wp.hash_grid_query(grid_dem, ri, support):
         dist = wp.length(ri - P_dem.pos[b])
-        if dist < support and P_dem.flt_s[b] > 1.0e-12:
-            force_density = force_density - P_dem.drag[b] * Kernel_w_Wendland(dist, h) / P_dem.flt_s[b]
+        if dist < 2.0 * P_dem.h[b] and P_dem.flt_s[b] > 1.0e-12:
+            force_density = force_density - P_dem.drag[b] * Kernel_w_Wendland(dist, P_dem.h[b]) / P_dem.flt_s[b]
     # Convert reaction density to fluid acceleration with the reference porosity factor.
     acc = force_density / (P_sph.rho[i] * P_sph.porosity[i])
     P_sph.acc_dem[i] = acc

@@ -4,6 +4,7 @@ import numpy as np
 import warp as wp
 
 from input.Config import Solv
+from input.input_reader import validate_eisph_particles
 from input.struct_eisph import EISPHptl
 from kernel.KERNEL_EISPH_KNL import Kernel_prepare_kgc
 from kernel.KERNEL_EISPH_BC import (
@@ -110,7 +111,7 @@ def run_eisph(solv: Solv,
     return: fixed positions [N_sph,3], velocity frames [frame][N_sph,3],
         and physical frame times [frame]. Particle fields are also updated in place.
     """
-    solv.validate_eisph()
+    validate_eisph_particles(solv, P_sph, P_bnd)
     with wp.ScopedDevice(solv.device):
         n_sph = P_sph.pos.shape[0]
         grid_sph = wp.HashGrid(solv.grid_slice, solv.grid_slice, solv.grid_slice)
@@ -128,7 +129,7 @@ def run_eisph(solv: Solv,
         times = [0.0]
 
         for step in range(1, solv.n_steps + 1):
-            store = step % solv.output_step == 0 or step == solv.n_steps
+            store = (solv.output_step > 0 and step % solv.output_step == 0) or step == solv.n_steps
             EISPH_OneStep(solv, P_sph, P_bnd, grid_sph, grid_bnd,
                           diagnostics=store)
             if store:

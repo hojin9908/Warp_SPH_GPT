@@ -4,7 +4,7 @@ from typing import Any
 import warp as wp
 
 from input.Config import Solv
-from input.gen_eisph import CavityPtlGeneration
+from input.input_reader import load_eisph_particles
 from output.gif_eisph import save_cavity_gif
 from source.EISPH import run_eisph
 
@@ -24,8 +24,11 @@ def parsing() -> dict[str, Any]:
     parser.add_argument("--steps", dest="n_steps", type=int,
                         default=argparse.SUPPRESS)
     parser.add_argument("--dt", type=float, default=argparse.SUPPRESS)
-    parser.add_argument("--dx", type=float, default=argparse.SUPPRESS)
-    parser.add_argument("--reynolds", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--input-dir", type=str, default=argparse.SUPPRESS)
+    parser.add_argument("--h", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--nu", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--no-gif", dest="gif_save", action="store_false",
+                        default=argparse.SUPPRESS)
     parser.add_argument("--output-step", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--fps", dest="gif_fps", type=int,
                         default=argparse.SUPPRESS)
@@ -47,14 +50,15 @@ def main() -> None:
     wp.init()
     # Scope controls particle allocation, HashGrid construction and kernel launches.
     with wp.ScopedDevice(solv.device):
-        P_sph, P_bnd = CavityPtlGeneration(solv).build()
+        P_sph, P_bnd = load_eisph_particles(solv)
         positions, velocities, times = run_eisph(
             solv, P_sph, P_bnd,
             progress=lambda step, total: print(f"[EISPH] {step:>5d} / {total}"),
         )
         # Rendering consumes only fixed positions and stored host velocity frames.
-        animation = save_cavity_gif(positions, velocities, times, solv)
-    print(f"[EISPH] animation: {animation}")
+        if solv.gif_save:
+            animation = save_cavity_gif(positions, velocities, times, solv)
+            print(f"[EISPH] animation: {animation}")
 
 
 if __name__ == "__main__":

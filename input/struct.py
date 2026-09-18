@@ -61,6 +61,7 @@ class DEMptl:
     K: wp.array(dtype=float)             # [N_dem]               Normal / tangential stiffness          [N/m]
     eta: wp.array(dtype=float)           # [N_dem]               Normal / tangential damping            [N s/m]
     mu: wp.array(dtype=float)            # [N_dem]               Coulomb friction coefficient           [-]
+    h: wp.array(dtype=float)             # [N_dem] Coupling smoothing length [m]
     # DEM-DEM CSR: *_old is read history; *_new is this step's write destination.
     contact_dem_offset_old: wp.array(dtype=wp.int32)   # [N_dem+1] previous/current CSR row offsets
     contact_dem_id_old: wp.array(dtype=wp.int32)       # [E_dem_old] stable neighbour IDs read this step

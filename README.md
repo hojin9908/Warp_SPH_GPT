@@ -7,15 +7,15 @@ z는 높이이고 중력은 −z 방향이다. SPH와 DEM은 xyz 병진 운동�
 
 ### 3D SPH–DEM Dam Break
 
-DEM 구 100개를 사용해 2.0 s 동안 계산한 3차원 Dam Break 결과다.
+현재 입력 파일의 DEM 구 20개를 사용해 9,000 step(0.9 s) 계산한 결과다. 101프레임으로 저장했다.
 
-![3D SPH-DEM Dam Break](animation/dam_break_sph_dem_100_2s.gif)
+![3D SPH-DEM Dam Break](animation/current_input_20260918/dam_break_sph_dem_3d.gif)
 
 ### Eulerian ISPH Lid-Driven Cavity
 
-Re=100, 25×25 고정 유체점으로 계산한 Lid-Driven Cavity 결과다.
+현재 입력 파일의 Re=100, 25×25 고정 유체점으로 5,000 step(10 s) 계산한 결과다. 51프레임으로 저장했다.
 
-![Eulerian ISPH Lid-Driven Cavity](animation/lid_driven_cavity.gif)
+![Eulerian ISPH Lid-Driven Cavity](animation/current_input_20260918/eisph.gif)
 
 ## 실행
 
@@ -24,6 +24,7 @@ Python 3.12, Warp 1.17.0, Matplotlib 3.9.2, Windows, NVIDIA GTX 1080이다.
 
 ```powershell
 py -3.12 -m pip install -r requirements.txt
+py -3.12 -m input_gen.generate
 py -3.12 main.py --device cuda:0
 py -3.12 main.py --device cpu
 py -3.12 main.py --steps 100 --output-step 50 --no-gif --output-dir results/3d_smoke
@@ -31,24 +32,28 @@ py -3.12 main.py --no-dem --output-dir results/sph_only_3d --animation-dir anima
 py -3.12 -m unittest discover -s tests -v
 ```
 
-`--dt`, `--animation-dir`도 지정할 수 있다. 물성·배치·시간 설정은
-`input/Config_SPH_DEM.py`의 `Solv` 인스턴스 `solv`에서 읽는다.
+`--dt`, `--animation-dir`, `--input-dir`도 지정할 수 있다.
+`input/Config.py`와 `input/Config_SPH_DEM.py`의 `Solv`는 SOPHIA의 `solv.txt`처럼
+계산 방법·유체 물성·시간·출력 설정을 보관한다. 후자는 WCSPH–DEM 기본값만 덮어쓴다.
+입자 배치·초기 속도·질량·밀도와 DEM 물성은 `input_file`의 텍스트 파일에서 읽는다.
+상대 `input_dir`는 프로젝트 루트를 기준으로 해석하며 절대 경로도 가능하다.
 기본 출력은 `result/3d`, `animation/3d`에 저장한다. 이전 2D 출력과 소스 백업
 `results/2d_baseline/source.zip`은 별도로 보존했다.
 
 ## Eulerian ISPH Lid-Driven Cavity
 
 고정된 x–z 셀 중심 입자에서 2차원 비압축성 Eulerian ISPH를 실행한다.
-`input/Config.py`와 `input/Config_SPH_DEM.py`는 동일한 `Solv` 필드와 메서드를
-사용하며, 각각 EISPH와 WCSPH–DEM 기본값을 저장한다. `h`와 `support`는 선택한
-`dx`, `h_factor`에서 자동으로 계산한다.
+`input/Config.py`와 `input/Config_SPH_DEM.py`는 동일한 계산 설정 필드와 메서드를
+사용하며, 각각 EISPH와 WCSPH–DEM 기본값을 저장한다. SPH/EISPH는 공통 `Solv.h`를
+사용하고 `support=2*h`는 자동 계산한다. EISPH 동점성계수 `nu`는 직접 지정한다.
 
 ```powershell
-py -3.12 main_EISHP.py --device cuda:0
-py -3.12 main_EISHP.py --device cpu --steps 200 --output-step 20
+py -3.12 main_EISPH.py --device cuda:0
+py -3.12 main_EISPH.py --device cpu --steps 200 --output-step 20
 ```
 
-`input/gen_eisph.py`가 정사각 cavity와 대칭 ghost를 만들고, `source/EISPH.py`가
+`input_gen/gen_eisph.py`가 전처리 단계에서 정사각 cavity와 대칭 ghost를 만든다.
+`main_EISPH.py`는 `input_reader`로 파일을 읽고, `source/EISPH.py`가
 Eulerian 대류·점성 predictor, SOPHIA식 단일 패스 대각 pressure update,
 velocity projection을 수행한다.
 EISPH 커널은 공통 Wendland·KGC(`KERNEL_EISPH_KNL.py`), mirror 경계조건
@@ -58,7 +63,9 @@ EISPH 커널은 공통 Wendland·KGC(`KERNEL_EISPH_KNL.py`), mirror 경계조건
 HashGrid와 kernel-gradient correction은 실행 초기에 한 번만 구성한다. 위쪽 ghost에는
 이동 lid, 나머지 ghost에는 no-slip 벽 조건을 적용한다. `Kernel_Dirichlet_BC`는 ghost별
 `vel_bc`를 사용하므로 정지 벽, 이동 벽, 비균일 지정 속도를 같은 식으로 처리한다. 결과는 속력장과 속도 벡터를 담은
-`animation/lid_driven_cavity.gif` 하나로 저장한다. 기본 조건은 Re=100, 25×25 유체점,
+`animation/lid_driven_cavity.gif` 하나로 저장한다. 표시 범위는 읽은 입자 좌표에서 구하고
+색상은 실제 속력 [m/s]이다. `--h`, `--nu`, `--input-dir`, `--no-gif`를 지정할 수 있으며
+기존 `--dx`, `--reynolds` 생성 옵션은 전처리 설정으로 이동했다. 기본 조건은 Re=100, 25×25 유체점,
 dt=0.002 s, 5,000 step이다.
 
 PPE는 이전 압력의 이웃 기여를 고정한 뒤 대각 관계로 새 압력을 한 번 계산하며,
@@ -94,12 +101,42 @@ SPH 질량은 `rho0*dx³`이고, DEM은 구 체적 `V=(4/3)*pi*R³`, 질량 `m=r
 토크 N·m, 관성모멘트 kg·m²이다. 구의 세 주관성모멘트가 같으므로 스칼라 `inertia`로
 3축 각속도를 적분하며, 회전 대칭 형상에는 별도 자세각이 필요하지 않다.
 
-`dem_nx/y/z`, `dem_origin_x/y/z`, `dem_vel_x/y/z`, `dem_omega_x/y/z`로 3차원
-배치와 운동을 설정한다. y축 깊이는 `tank_depth`, `fluid_depth`, `fluid_origin_y`,
-z축 높이는 `tank_height`, `fluid_height`, `fluid_origin_z`로 지정한다.
-`validate_sph()`와 `validate_dem()`은 영역·격자·물성·배치와 시간 간격을 검사한다.
-SPH 초기 음향 제한은 `dt <= 0.25*h/c0`, DEM 접촉 제한은
-`dt <= dem_dt_safety*min(sqrt((m/2)/K), (m/2)/eta)`이다. 시간 간격은 자동 조절하지 않는다.
+`input_gen/config.py`의 `GenerationConfig` / `CoupledGenerationConfig`가 기존
+`Solv`의 배치·초기 물성 기본값을 보존한다. 수조, `dx`, DEM 개수·초기 위치·속도,
+반지름, `dem_K/eta/mu/h`, cavity 크기·lid 속도를 여기서 바꾸고 파일을 재생성한다.
+생성 설정은 실행 중 읽지 않는다. 파일을 직접 편집한 뒤 생성기를 실행하면 편집값이
+교체되므로, 두 실행 진입점은 입력 파일을 자동 생성하지 않는다.
+
+실행 시 `validate_sph()`는 공통 계산 설정을, `input_reader`는 읽은 물리량과
+시간 간격을 검사한다. SPH 초기 음향 제한은 `dt <= 0.25*h/c0`이다.
+DEM은 실제 입자 질량의 최솟값과 강성·감쇠 최댓값으로 보수적인 접촉 제한을 검사한다.
+EISPH는 읽은 `sqrt(m/rho)`와 지정 경계 속도로 초기 predictor 제한을 검사한다.
+시간 간격은 자동 조절하지 않는다.
+
+## 입자 입력 형식
+
+`input/input_reader.py::input_parser(path, kind=None, device="cpu")`는 SOPHIA처럼
+첫 행의 정수 ID에 따라 각 열을 구조체 필드에 할당한다. ID는 Notion 표 순서에
+따라 각 파일에서 1부터 시작하고, 벡터는 x/y/z 순으로 펼친다. SOPHIA 원본의
+숫자 ID와는 다르다. 열 순서는 헤더와 데이터를 함께 이동하여 바꿀 수 있다.
+압력·가속도·힘·필터·공극률·PPE·접촉 이력 등 계산 필드에는 ID가 없다.
+
+| 파일 | 입력 필드 순서 | 기본 입자 수 |
+| --- | --- | ---: |
+| `input_SPH.txt` | pos, vel, rho, m | 12,500 |
+| `input_BND.txt` | pos, vel, rho, m | 48,336 |
+| `input_DEM.txt` | pos, vel, omega, radius, rho, m, inertia, K, eta, mu, h | 20 |
+| `input_DEMBND.txt` | pos, vel, omega, radius, rho, m, inertia, K, eta, mu | 14,688 |
+| `input_EISPH.txt` | pos, vel, rho, m | 625 |
+| `input_EISPHBND.txt` | pos, vel_bc, rho, m, mirror | 336 |
+
+상세 숫자 ID·단위·초기화 규칙은 [입력 파일 설명](input_file/README.md)과
+[Notion 대응표](https://app.notion.com/p/3d5359e0c6458048acb9c77f79fd4608)에 있다.
+`mirror`는 EISPH 유체 파일의 0-based 데이터 행 번호이며, ghost 속도는
+`2*vel_bc-fluid.vel[mirror]`로 초기화한다. DEM 체적은 반지름에서 계산하고
+질량과 밀도의 일관성을 검사한다. 모든 입력 열은 필수이며 중복·미지정 ID,
+비유한 값, 잘못된 행 길이, 유효하지 않은 물성과 mirror 번호는 오류다.
+이는 초기조건 입력이며 계산 중 압력이나 접촉 이력까지 복원하는 재시작 기능은 아니다.
 
 ## 자료구조와 경계
 
@@ -110,7 +147,8 @@ SPH 초기 음향 제한은 `dt <= 0.25*h/c0`, DEM 접촉 제한은
 | `DEMptl` | 자신 a, 이웃 b | 구의 위치·속도·힘·각속도·토크·물성·접촉 이력·유체 연계력 |
 | `DEMBNDptl` | 이웃 dbj | 위치·반지름과 0인 속도·각속도를 제공하는 kinematic 고정 구 |
 
-`DamPtlGeneration.build()`가 SPH 연계 필드까지 초기화한다. 별도 연계 구조체나
+실행 경로에서는 `input_parser()`가 SPH 연계 필드와 DEM old/new CSR까지 초기화한다.
+기존 `input/gen_*.py`는 전처리 모듈로 연결하는 호환 import만 남겼다. 별도 연계 구조체나
 전달 변수 없이 `P_sph`의 필드를 직접 읽고 쓴다. `P_sph.acc_dem`은 DEM 항력의
 기여분이고 `P_sph.acc`는 적분에 사용하는 총가속도다.
 
@@ -193,6 +231,12 @@ DEM 접촉과 SPH–DEM 연계식은 [DEM_HeatTransferModelV2](https://github.co
 - [function_SPH_DEM_COUPLING.cuh](https://github.com/hojin9908/DEM_HeatTransferModelV2/blob/18b2e46cb66590531f565903acda3d5d18d899c5/function_SPH_DEM_COUPLING.cuh): 압력 보간, Ergun/Wen–Yu 항력, SPH 반작용.
 
 유체 보간과 항력 반작용은 동일한 연계 커널과 유체 이웃 집합을 사용한다.
+연계 smoothing length는 `P_dem.h[a]`이며 반작용도 해당 DEM의 h를 사용한다.
+탐색 최대 반지름과 최대 h는 실제 입자 배열에서 구해 실행 시작 시 보관한다.
+서로 다른 h에서는 SPH 위치의 각 고체 기여를 해당 DEM의 h로 계산한 유체-only
+kernel sum으로 정규화한다. 같은 h에서는 기존 공통 h 정규화로 환원된다.
+접촉식은 기존처럼 이동 subject의 `K/eta/mu`를 사용한다. 고정 DEM 경계의
+접촉 물성은 저장되지만 현재 접촉식에는 사용되지 않는다.
 압력력은 `V*<−grad(p)>`, 항력은 `m*c/(1+dt*c)*(u_f-v_dem)`이다.
 유체 이웃이 없으면 이전 항력과 압력력을 지운다. 원본의 gradient correction 대신
 현재 솔버의 보정 없는 3D Wendland gradient를 사용한다.
@@ -217,7 +261,7 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
 - 각 PVD는 동일한 시간의 `sph_*.vtp`, `dem_*.vtp`를 가리킨다.
 - `animation/3d/dam_break_sph_dem_3d.gif`: 모든 SPH 점과 실제 반지름의 DEM 구를
   3D로 표시한다. 물리 z축을 수직으로 그리며 각 축의 길이 비율을 유지한다.
-  SPH 색상은 압력, DEM은 주황색이다. 고정 경계는 수조 외곽선으로 표시한다.
+  SPH 색상은 압력, DEM은 주황색이다. 고정 경계는 입력 좌표의 표본 점으로 표시한다.
   유체 내부의 구를 확인할 수 있도록 DEM 표면을 반투명 SPH 점 위에 겹쳐 표시한다.
 - `save_gif(..., axis_limits=((xmin,ymin,zmin),(xmax,ymax,zmax)))`로 모든 프레임에
   동일한 물리 축 범위를 강제할 수 있다. 생략하면 전체 이동 입자를 포함하는 범위를 사용한다.
@@ -226,7 +270,12 @@ SPH 점과 DEM 구가 겹칠 수 있다. 열전달은 구현 범위에 포함하
   `x=[-0.06,2.06]`, `y=[-0.06,0.46]`, `z=[-0.06,2.06]` m를 사용한다.
 - 초기 상태와 마지막 상태는 출력 주기에 맞지 않아도 저장한다 (`output_step > 0`).
 
-테스트 35개가 통과했다. −z 중력 방향, 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
+파일 입력 전환 후 테스트 45개가 통과했다. 기존 35개 물리 회귀 검증에
+6종 파일 배열 비교, 열 순서 변경, 잘못된 입력과 mirror 검출, CPU/CUDA의
+파일/생성 경로 궤적 비교, DEM 입자별 h의 공극률 가중 항력 반작용 검증을 추가했다.
+기본 6종 파일의 초기 배열은 변경 전 저장한 원본 배열과도 비교해 일치를 확인했다.
+두 실행 파일을 CPU/CUDA에서 짧게 실행했고 SPH-only 및 GIF/VTK 출력도 확인했다.
+−z 중력 방향, 커널 체적 적분·미분, 3D 질량·관성·경계 기하, 사선 접촉,
 앞뒤 벽의 이동 DEM 반발력, 3축 회전·압력구배·항력, 공극률 가중 반작용, 접촉 이력 해제,
 빈 old/new CSR 할당·정확한 E 크기·0→증가→비영(非零) 감소→0→재접촉·행의 접촉 교체,
 경계 CSR 증가와 해제, HashGrid rebuild 뒤 stable-ID 이력 승계, SPH 전용 경로,

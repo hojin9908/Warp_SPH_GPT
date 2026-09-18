@@ -5,8 +5,7 @@ import warp as wp
 
 from input.Config_SPH_DEM import Solv
 from input.struct import SPHptl, BNDptl, DEMptl, DEMBNDptl
-from input.gen_ptl import DamPtlGeneration
-from input.gen_dem import DEMPtlGeneration
+from input.input_reader import load_sph_particles, validate_dem_particles
 from source.Simulation import SPH_OneStep, SPHDEM_OneStep
 from output.frame_writer import FrameWriter
 
@@ -22,7 +21,8 @@ def parsing() -> dict[str, Any]:
     """
     parser = argparse.ArgumentParser(description="Warp 3D SPH-DEM Dam Break Solver")
 
-    parser.add_argument("--device", type=str, help="device to use", default="cuda:0")
+    parser.add_argument("--device", type=str, help="device to use", default=argparse.SUPPRESS)
+    parser.add_argument("--input-dir", type=str, default=argparse.SUPPRESS)
     parser.add_argument("--steps", dest="n_steps", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--dt", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--output-step", type=int, default=argparse.SUPPRESS)
@@ -67,9 +67,10 @@ def run_forward(solv: Solv,
     coupled = solv.dem_enable and P_dem is not None
     if solv.dem_enable and not coupled:
         raise ValueError("DEM is enabled: provide DEM particles, boundaries and coupling grids")
+    search_scales = None
     if coupled:
-        solv.validate_dem()
-        grid_dem_bnd.build(points=P_dem_bnd.pos, radius=2.0 * solv.dem_bnd_radius)
+        search_scales = validate_dem_particles(solv, P_dem, P_dem_bnd)
+        grid_dem_bnd.build(points=P_dem_bnd.pos, radius=max(2.0 * search_scales[1], solv.support))
 
     # The output module owns frame validation, VTK references and optional GIF data.
     writer = FrameWriter(solv, P_sph, P_bnd,
@@ -83,9 +84,9 @@ def run_forward(solv: Solv,
     for step in range(solv.n_steps):
         grid_sph.build(points=P_sph.pos, radius=solv.support)
         if coupled:
-            grid_dem.build(points=P_dem.pos, radius=max(2.0 * solv.dem_radius, solv.dem_support))
+            grid_dem.build(points=P_dem.pos, radius=max(2.0 * search_scales[0], 2.0 * search_scales[2]))
             SPHDEM_OneStep(solv, P_sph, P_bnd, P_dem, P_dem_bnd,
-                          grid_sph, grid_bnd, grid_dem, grid_dem_bnd, step)
+                          grid_sph, grid_bnd, grid_dem, grid_dem_bnd, step, search_scales)
         else:
             SPH_OneStep(solv, P_sph, P_bnd, grid_sph, grid_bnd, step)
 
@@ -112,14 +113,11 @@ def main() -> None:
     wp.init()
     # Scope also controls HashGrid allocation and kernel launches in helper functions.
     with wp.ScopedDevice(solv.device):
-        dam_generater = DamPtlGeneration(solv=solv)
-        P_sph, P_bnd = dam_generater.build()
+        P_sph, P_bnd, P_dem, P_dem_bnd = load_sph_particles(solv)
         grid_sph = wp.HashGrid(solv.grid_slice, solv.grid_slice, solv.grid_slice)
         grid_bnd = wp.HashGrid(solv.grid_slice, solv.grid_slice, solv.grid_slice)
         if solv.dem_enable:
             # Allocate moving / fixed DEM structures; fluid fields belong to P_sph.
-            dem_generater = DEMPtlGeneration(solv=solv)
-            P_dem, P_dem_bnd = dem_generater.build()
             grid_dem = wp.HashGrid(solv.grid_slice, solv.grid_slice, solv.grid_slice)
             grid_dem_bnd = wp.HashGrid(solv.grid_slice, solv.grid_slice, solv.grid_slice)
             run_forward(solv, P_sph, P_bnd, grid_sph, grid_bnd,

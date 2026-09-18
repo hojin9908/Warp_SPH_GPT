@@ -1,105 +1,61 @@
+"""EISPH rendering from loaded positions, without cavity generator settings."""
 from pathlib import Path
-
 import matplotlib
-
-matplotlib.use("Agg")               # headless rendering, no interactive window
-
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
-
 from input.Config import Solv
 
 
-def save_cavity_gif(positions: np.ndarray,
-                    velocity_frames: list[np.ndarray],
-                    times: list[float],
-                    solv: Solv,
+def save_cavity_gif(positions: np.ndarray, velocity_frames: list[np.ndarray],
+                    times: list[float], solv: Solv,
                     path: str | Path | None = None) -> Path:
+    """Render fixed x-z points with physical speed [m/s] and velocity arrows.
+
+    Bounds come from the input cloud. Point ordering, translated coordinates,
+    and non-square point sets do not depend on generation settings.
     """
-    Render the EISPH lid-driven cavity as a two-dimensional GIF.
-
-    positions: fixed host positions [N_sph,3], ordered on the x-z lattice
-    velocity_frames: corrected host velocities [frame][N_sph,3]
-    times: physical time of each stored frame [s]
-    solv: cavity geometry, lid velocity and GIF configuration
-    path: optional output path; solv.animation_path is used when omitted
-
-    The normalized speed colour scale is fixed to [0,1] for all frames.
-    White arrows show the x-z velocity components on a coarser display grid.
-
-    return: absolute path of the saved GIF
-    """
-    # Reject inconsistent host data before creating an output file.
     if len(velocity_frames) != len(times) or not velocity_frames:
         raise ValueError("velocity_frames and times must have the same non-zero length")
-
-    n = solv.cells
-    expected_shape = (n * n, 3)
-    if positions.shape != expected_shape:
-        raise ValueError(f"expected positions with shape {expected_shape}")
+    if positions.ndim != 2 or positions.shape[1] != 3 or not len(positions):
+        raise ValueError("positions must be a nonempty [N,3] array")
+    if not np.isfinite(positions).all():
+        raise ValueError("positions must be finite")
     for velocity in velocity_frames:
-        if velocity.shape != expected_shape or not np.all(np.isfinite(velocity)):
+        if velocity.shape != positions.shape or not np.isfinite(velocity).all():
             raise ValueError("every velocity frame must be finite and match positions")
-
     destination = Path(solv.animation_path if path is None else path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    stride = max(1, n // 12)
-    x = positions[:, 0].reshape(n, n)
-    z = positions[:, 2].reshape(n, n)
-
-    def fields(frame: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Reshape one host frame to regular x-z fields.
-
-        frame: stored frame index
-        return: x velocity, z velocity and speed / lid_velocity [n,n]
-        """
-        velocity = velocity_frames[frame].reshape(n, n, 3)
-        u = velocity[:, :, 0]
-        w = velocity[:, :, 2]
-        return u, w, np.sqrt(u * u + w * w) / solv.lid_velocity
-
-    u0, w0, speed0 = fields(0)
+    speed = [np.linalg.norm(v[:, (0, 2)], axis=1) for v in velocity_frames]
+    vmax = max(max(float(v.max()) for v in speed), 1e-8)
+    x, z = positions[:, 0], positions[:, 2]
+    span = max(float(np.ptp(x)), float(np.ptp(z)), solv.h)
+    pad = 0.04 * span
+    stride = max(1, len(positions) // 150)
+    sample = slice(None, None, stride)
     fig, ax = plt.subplots(figsize=(6.1, 5.5))
-    # A fixed colour range preserves the meaning of colour through time.
-    image = ax.imshow(speed0, origin="lower", extent=(0.0, solv.length, 0.0, solv.length),
-                      cmap="turbo", vmin=0.0, vmax=1.0,
-                      interpolation="bilinear")
-    quiver = ax.quiver(x[::stride, ::stride], z[::stride, ::stride],
-                       u0[::stride, ::stride], w0[::stride, ::stride],
-                       color="white", angles="xy", scale_units="xy", scale=2.0,
-                       width=0.004, pivot="mid")
-    ax.plot([0, solv.length, solv.length, 0, 0],
-            [0, 0, solv.length, solv.length, 0], color="black", linewidth=2.0)
-    ax.annotate("moving lid", xy=(0.78 * solv.length, 1.035 * solv.length),
-                xytext=(0.22 * solv.length, 1.035 * solv.length),
-                arrowprops={"arrowstyle": "->", "lw": 2.0},
-                ha="center", va="center")
-    ax.set(xlabel="x / L", ylabel="z / L", aspect="equal",
-           xlim=(-0.02 * solv.length, 1.02 * solv.length),
-           ylim=(-0.02 * solv.length, 1.09 * solv.length))
-    title = ax.set_title(f"Eulerian ISPH lid-driven cavity   t = {times[0]:.3f} s")
-    colorbar = fig.colorbar(image, ax=ax, pad=0.03)
-    colorbar.set_label(r"$|u| / U_{lid}$")
+    dots = ax.scatter(x, z, c=speed[0], cmap="turbo", vmin=0, vmax=vmax,
+                      s=max(3.0, min(70.0, 25000.0 / len(positions))), marker="s")
+    v0 = velocity_frames[0]
+    arrows = ax.quiver(x[sample], z[sample], v0[sample, 0], v0[sample, 2],
+                      color="white", angles="xy", scale_units="xy",
+                      scale=15.0*vmax/span, width=0.003)
+    ax.set(xlabel="x [m]", ylabel="z [m]", aspect="equal",
+           xlim=(x.min()-pad, x.max()+pad), ylim=(z.min()-pad, z.max()+pad))
+    title = ax.set_title(f"Eulerian ISPH   t = {times[0]:.3f} s")
+    fig.colorbar(dots, ax=ax, pad=0.03).set_label("speed [m/s]")
     fig.tight_layout()
 
-    def update(frame: int):
-        """
-        Update the colour field, velocity arrows and physical-time title.
+    def update(frame):
+        dots.set_array(speed[frame])
+        velocity = velocity_frames[frame]
+        arrows.set_UVC(velocity[sample, 0], velocity[sample, 2])
+        title.set_text(f"Eulerian ISPH   t = {times[frame]:.3f} s")
+        return dots, arrows, title
 
-        frame: stored frame index
-        return: Matplotlib artists for FuncAnimation; blit=False redraws the axes
-        """
-        u, w, speed = fields(frame)
-        image.set_data(speed)
-        quiver.set_UVC(u[::stride, ::stride], w[::stride, ::stride])
-        title.set_text(f"Eulerian ISPH lid-driven cavity   t = {times[frame]:.3f} s")
-        return image, quiver, title
-
-    # PillowWriter creates the only user-visible EISPH result.
-    animation = FuncAnimation(fig, update, frames=len(velocity_frames),
-                              interval=1000.0 / solv.gif_fps, blit=False)
+    animation = FuncAnimation(fig, update, frames=len(times),
+                              interval=1000.0/solv.gif_fps, blit=False)
     animation.save(destination, writer=PillowWriter(fps=solv.gif_fps), dpi=100)
     plt.close(fig)
     return destination.resolve()

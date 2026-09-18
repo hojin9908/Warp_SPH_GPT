@@ -81,7 +81,7 @@ def save_gif(frames: list[dict],
     Render SPH points and physical DEM sphere surfaces together in a 3D GIF.
 
     frames: synchronized host states from collect_frame, in time order
-    solv: tank dimensions and SPH spacing; z is vertical, y is tank depth
+    solv: solver settings; axis bounds come from the loaded particle geometry
     field: fluid colour field (pres, vel or rho), with a fixed scale for all frames
     fps: playback frames per second; physical time is printed on every frame
     clip: percentile at which the fluid colour scale saturates
@@ -92,7 +92,7 @@ def save_gif(frames: list[dict],
     return: saved GIF path
     Moving particles are drawn; explicit limits keep the displayed axes fixed
     instead of expanding them for out-of-range particles. Fixed walls use a
-    tank outline, while VTK retains every wall particle.
+    a sampled point cloud, while VTK retains every wall particle.
     """
     if not frames:
         raise ValueError("no frames to write")
@@ -106,22 +106,19 @@ def save_gif(frames: list[dict],
     vmin = float(every.min())
     vmax = max(float(np.percentile(every, clip)), vmin + 1.0)
     extend = "max" if every.max() > vmax else "neither"
-    pad = solv.bnd_layer * solv.dx
+    pad = 0.5 * solv.h
     if axis_limits is None:
-        lower = np.array([-pad, -pad, -pad])
-        upper = np.array([solv.tank_width + pad, solv.tank_depth + pad,
-                          solv.tank_height + pad])
-        # Include all moving particles, even above the open top, with fixed axes in time.
+        lower = np.full(3, np.inf)
+        upper = np.full(3, -np.inf)
         for frame in frames:
-            lower = np.minimum(lower, frame["pos_sph"].min(axis=0) - solv.dx)
-            upper = np.maximum(upper, frame["pos_sph"].max(axis=0) + solv.dx)
-            if "pos_dem" in frame:
-                lower = np.minimum(
-                    lower,
-                    (frame["pos_dem"] - frame["radius_dem"][:, None]).min(axis=0) - pad)
-                upper = np.maximum(
-                    upper,
-                    (frame["pos_dem"] + frame["radius_dem"][:, None]).max(axis=0) + pad)
+            for key_pos in ("pos_sph", "pos_bnd", "pos_dem", "pos_dem_bnd"):
+                if key_pos not in frame or not len(frame[key_pos]):
+                    continue
+                points = frame[key_pos]
+                radius_key = key_pos.replace("pos_", "radius_")
+                radii = frame[radius_key][:, None] if radius_key in frame else 0.0
+                lower = np.minimum(lower, (points - radii).min(axis=0) - pad)
+                upper = np.maximum(upper, (points + radii).max(axis=0) + pad)
     else:
         lower = np.asarray(axis_limits[0], dtype=float)
         upper = np.asarray(axis_limits[1], dtype=float)
@@ -146,14 +143,12 @@ def save_gif(frames: list[dict],
     ax.grid(False)
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.pane.fill = False
-    # Twelve outline edges indicate the tank; its upper opening has no wall surface.
-    corners = np.array([[x, y, z] for x in (0.0, solv.tank_width)
-                        for y in (0.0, solv.tank_depth) for z in (0.0, solv.tank_height)])
-    for i in range(len(corners)):
-        for j in range(i + 1, len(corners)):
-            if np.count_nonzero(corners[i] != corners[j]) == 1:
-                edge = corners[[i, j]]
-                ax.plot(edge[:, 0], edge[:, 1], edge[:, 2], color="0.55", linewidth=0.7, alpha=0.65, zorder=1)
+    # Use actual input geometry, including translated and non-box boundaries.
+    wall = frames[0]["pos_bnd"]
+    if len(wall):
+        wall = wall[::max(1, len(wall) // 4000)]
+        ax.scatter(wall[:, 0], wall[:, 1], wall[:, 2], color="0.55",
+                   s=1, alpha=0.12, linewidths=0, zorder=1)
 
     # Translucent SPH points let the submerged DEM spheres remain visible.
     pos = frames[0]["pos_sph"]
